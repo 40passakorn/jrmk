@@ -1,0 +1,1427 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>โต๊ะจีนเจริญมงคล | บริการโต๊ะจีนพรีเมียม อร่อย คุ้มค่า พิถีพิถันทุกจาน</title>
+    <meta name="description" content="โต๊ะจีนเจริญมงคล บริการจัดเลี้ยงโต๊ะจีนคุณภาพสูงสำหรับงานมงคลสมรส งานบวช และงานเลี้ยงองค์กร ด้วยวัตถุดิบพรีเมียม และราคาคุ้มค่า">
+    <meta property="og:title" content="โต๊ะจีนเจริญมงคล">
+    <meta property="og:description" content="บริการโต๊ะจีนพรีเมียม ราคาเริ่มต้น 3,990 บาท">
+    <meta property="og:type" content="website">
+
+    <style>
+        /* ------------------
+        1. CSS Variables and Fonts
+        ------------------ */
+        :root {
+            /* Colors - Chinese Theme */
+            --color-red: #B91C1C; /* Main Red */
+            --color-red-dark: #991B1B; /* Darker Red for hover/active */
+            --color-gold: #F59E0B; /* Main Gold */
+            --color-gold-light: #FCD34D;
+            --color-off-white: #FFF7ED; /* Ivory Background */
+            --color-dark-ink: #0F172A; /* Text and Dark elements */
+            --color-border: #D1D5DB; /* Light Gray for lines */
+
+            /* Typography & Spacing */
+            --font-stack: "Noto Sans Thai", "Sarabun", system-ui, -apple-system, sans-serif;
+            --spacing-lg: 4rem;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+        }
+
+        /* ------------------
+        2. Global Reset and Base Styles
+        ------------------ */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: var(--font-stack);
+            line-height: 1.6;
+            color: var(--color-dark-ink);
+            background-color: var(--color-off-white);
+            /* Chinese Cloud Pattern SVG (6% opacity) */
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 100 100'%3E%3Cdefs%3E%3Cfilter id='a' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.5' numOctaves='3' seed='100'/%3E%3CfeColorMatrix values='1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 20 -10'/%3E%3C/filter%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='%23FFF7ED'/%3E%3Crect width='100%25' height='100%25' opacity='.06' filter='url(%23a)' fill='%23B91C1C'/%3E%3C/svg%3E");
+        }
+
+        section {
+            padding: var(--spacing-lg) 1rem;
+            max-width: 1280px;
+            margin: 0 auto;
+        }
+
+        h2 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            text-align: center;
+            color: var(--color-red);
+            text-shadow: 1px 1px 0 var(--color-dark-ink);
+        }
+
+        h3 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: var(--color-dark-ink);
+            margin-bottom: 3rem;
+            font-size: 1.125rem;
+        }
+
+        /* ------------------
+        3. Utility & Components
+        ------------------ */
+
+        /* Button Styling (CTA) */
+        .btn {
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            padding: 0.75rem 1.75rem;
+            border-radius: var(--radius-md);
+            font-weight: 700;
+            font-size: 1.1rem;
+            cursor: pointer;
+            border: 2px solid transparent;
+            text-decoration: none;
+            transition: all 0.2s ease-in-out;
+            text-transform: none; /* Ensure no unwanted capitalization */
+        }
+
+        .btn-primary {
+            background-color: var(--color-red);
+            color: var(--color-off-white);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 0 0 2px var(--color-gold);
+        }
+
+        .btn-primary:hover, .btn-primary:focus {
+            background-color: var(--color-red-dark);
+            box-shadow: 0 8px 10px -3px rgba(0, 0, 0, 0.3), 0 0 0 4px var(--color-gold);
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background-color: var(--color-gold);
+            color: var(--color-dark-ink);
+            border: 2px solid var(--color-dark-ink);
+        }
+
+        .btn-secondary:hover {
+            background-color: var(--color-gold-light);
+            transform: translateY(-1px);
+        }
+
+        /* Gold Corner Ornament (Minimalist) */
+        .card {
+            background-color: #FFFFFF;
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-lg);
+            padding: 1.5rem;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .corner-ornament {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border: 3px solid var(--color-gold);
+            opacity: 0.8;
+        }
+        .corner-ornament.tl { top: 0; left: 0; border-right: none; border-bottom: none; border-radius: 8px 0 0 0; }
+        .corner-ornament.tr { top: 0; right: 0; border-left: none; border-bottom: none; border-radius: 0 8px 0 0; }
+        .corner-ornament.bl { bottom: 0; left: 0; border-right: none; border-top: none; border-radius: 0 0 0 8px; }
+        .corner-ornament.br { bottom: 0; right: 0; border-left: none; border-top: none; border-radius: 0 0 8px 0; }
+
+        /* Icon styling */
+        .icon {
+            font-size: 1.5rem;
+            color: var(--color-red);
+            margin-right: 0.5rem;
+        }
+
+        /* Divider */
+        .section-divider {
+            width: 100%;
+            height: 40px;
+            overflow: hidden;
+            margin: 0 auto;
+        }
+        .section-divider-wave {
+            width: 200%;
+            height: 100%;
+            background: linear-gradient(135deg, var(--color-red) 50%, var(--color-gold) 50%);
+            border-radius: 0 0 50% 50%;
+            transform: translateX(-25%) rotate(180deg);
+            opacity: 0.1;
+        }
+        
+        /* Glass Effect for Premium look */
+        .glass-premium {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+
+        /* ------------------
+        4. Navbar
+        ------------------ */
+        .navbar {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            width: 100%;
+            padding: 1rem 1.5rem;
+            background-color: var(--color-off-white);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--color-red);
+            letter-spacing: -0.5px;
+            text-shadow: 1px 1px 0 var(--color-gold);
+            text-decoration: none;
+        }
+
+        .nav-links {
+            display: none; /* Mobile default */
+        }
+
+        .nav-links a {
+            color: var(--color-dark-ink);
+            text-decoration: none;
+            font-weight: 500;
+            margin-left: 1.5rem;
+            padding: 0.5rem 0;
+            position: relative;
+            transition: color 0.2s;
+        }
+
+        .nav-links a:hover, .nav-links a.active {
+            color: var(--color-red);
+        }
+
+        .nav-links a::after {
+            content: '';
+            position: absolute;
+            width: 0;
+            height: 2px;
+            display: block;
+            margin-top: 2px;
+            right: 0;
+            background: var(--color-gold);
+            transition: width 0.2s ease-in-out;
+        }
+
+        .nav-links a:hover::after, .nav-links a.active::after {
+            width: 100%;
+            left: 0;
+            background: var(--color-red);
+        }
+
+        .menu-toggle {
+            display: block;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: var(--color-red);
+        }
+
+        /* ------------------
+        5. Hero Section
+        ------------------ */
+        #hero {
+            text-align: center;
+            padding: 6rem 1rem;
+            background: linear-gradient(135deg, var(--color-red), var(--color-red-dark) 70%);
+            color: var(--color-off-white);
+            margin-top: -1px; /* Overlap navbar shadow */
+            position: relative;
+        }
+
+        #hero h1 {
+            font-size: 3rem;
+            font-weight: 900;
+            margin-bottom: 0.5rem;
+            text-shadow: 2px 2px 0 var(--color-dark-ink);
+            line-height: 1.1;
+        }
+
+        #hero p {
+            font-size: 1.4rem;
+            font-weight: 300;
+            margin-bottom: 2rem;
+            opacity: 0.9;
+        }
+
+        /* ------------------
+        6. Menu Section
+        ------------------ */
+        #menu {
+            background-color: #F8F4F0; /* Slightly different background for section contrast */
+        }
+
+        .menu-grid {
+            display: grid;
+            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        }
+
+        .menu-item {
+            display: flex;
+            align-items: center;
+            border-left: 4px solid var(--color-red);
+            padding: 1rem;
+            position: relative;
+        }
+
+        .menu-details {
+            flex-grow: 1;
+        }
+
+        .menu-details h4 {
+            font-size: 1.25rem;
+            margin-bottom: 0.25rem;
+            color: var(--color-dark-ink);
+        }
+
+        .menu-details p {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--color-red);
+        }
+
+        .menu-badge {
+            position: absolute;
+            top: -10px;
+            right: 0;
+            background-color: var(--color-gold);
+            color: var(--color-dark-ink);
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            transform: rotate(3deg);
+            cursor: help;
+        }
+
+        /* ------------------
+        7. Pricing Section
+        ------------------ */
+        #pricing {
+            text-align: center;
+        }
+
+        .pricing-toggle {
+            margin-bottom: 2rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 1rem;
+            font-weight: 600;
+        }
+
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 70px;
+            height: 34px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider-round {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--color-gold);
+            transition: 0.4s;
+            border-radius: 34px;
+        }
+
+        .slider-round:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: 0.4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider-round {
+            background-color: var(--color-red);
+        }
+
+        input:checked + .slider-round:before {
+            transform: translateX(35px);
+        }
+
+        .pricing-grid {
+            display: grid;
+            gap: 24px;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        }
+
+        .price-card {
+            padding: 2rem;
+            text-align: center;
+            border: 3px solid var(--color-gold);
+        }
+        
+        .price-card.featured {
+            transform: scale(1.05);
+            border-color: var(--color-red);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.15);
+        }
+        
+        .price-card h3 {
+            color: var(--color-red);
+            font-size: 1.8rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .price-card .price {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: var(--color-gold);
+            margin-bottom: 1rem;
+            display: block;
+        }
+
+        .price-card ul {
+            list-style: none;
+            text-align: left;
+            margin-bottom: 1.5rem;
+            padding-left: 0;
+        }
+
+        .price-card ul li {
+            padding: 0.5rem 0;
+            border-bottom: 1px dashed var(--color-border);
+            color: var(--color-dark-ink);
+        }
+        
+        .price-card .note {
+            font-size: 0.9rem;
+            color: var(--color-text-secondary);
+            margin-top: 1rem;
+            opacity: 0.8;
+        }
+
+        /* ------------------
+        8. Review Section
+        ------------------ */
+        #reviews {
+            background-color: #F8F4F0;
+        }
+        .reviews-grid {
+            display: grid;
+            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        }
+
+        .review-card {
+            padding: 1.5rem;
+            border-top: 4px solid var(--color-gold);
+            font-style: italic;
+        }
+
+        .review-card .rating {
+            color: var(--color-gold);
+            font-size: 1.2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .review-card .author {
+            font-style: normal;
+            font-weight: 600;
+            margin-top: 1rem;
+            display: block;
+        }
+
+        /* ------------------
+        9. Gallery Section & Lightbox
+        ------------------ */
+        .gallery-grid {
+            display: grid;
+            gap: 10px;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        }
+
+        .gallery-item {
+            aspect-ratio: 1/1;
+            overflow: hidden;
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            border: 3px solid var(--color-off-white);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s, opacity 0.2s;
+        }
+
+        .gallery-item:hover {
+            transform: scale(1.03);
+            opacity: 0.9;
+        }
+
+        .gallery-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        /* Lightbox Overlay */
+        .lightbox-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 23, 42, 0.95); /* Dark Ink overlay */
+            z-index: 200;
+            display: none;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .lightbox-content {
+            position: relative;
+            max-width: 90%;
+            max-height: 90%;
+        }
+
+        .lightbox-content img {
+            display: block;
+            max-width: 100%;
+            max-height: 100vh;
+            border: 4px solid var(--color-gold);
+            border-radius: var(--radius-lg);
+        }
+
+        .lightbox-close {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: var(--color-red);
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 50%;
+            font-size: 1.5rem;
+            line-height: 1;
+            cursor: pointer;
+            z-index: 210;
+        }
+
+        /* ------------------
+        10. Booking/Form Section
+        ------------------ */
+        #contact {
+            background-color: #F8F4F0;
+        }
+        .form-container {
+            max-width: 600px;
+            margin: 0 auto;
+            border: 1px solid var(--color-red);
+        }
+
+        .form-grid {
+            display: grid;
+            gap: 15px;
+            grid-template-columns: 1fr;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--color-border);
+            border-radius: 6px;
+            font-family: var(--font-stack);
+            font-size: 1rem;
+            background-color: white;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            outline: none;
+            border-color: var(--color-red);
+            box-shadow: 0 0 0 2px rgba(185, 28, 28, 0.2);
+        }
+
+        /* Responsive form grid */
+        @media (min-width: 768px) {
+            .form-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .full-width {
+                grid-column: span 2;
+            }
+        }
+        
+        /* Form Validation Error */
+        .error-message {
+            color: var(--color-red);
+            font-size: 0.9rem;
+            margin-top: 4px;
+            display: block;
+            min-height: 18px;
+        }
+        .input-error {
+            border-color: var(--color-red) !important;
+            box-shadow: 0 0 0 2px rgba(185, 28, 28, 0.2) !important;
+        }
+
+        .booking-success {
+            padding: 30px;
+            text-align: center;
+            background-color: #D1FAE5;
+            color: #065F46;
+            border: 1px solid #10B981;
+            border-radius: var(--radius-lg);
+            display: none;
+        }
+
+        /* ------------------
+        11. Service Area/Map
+        ------------------ */
+        .area-container {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+            align-items: flex-start;
+        }
+        
+        .map-placeholder {
+            width: 100%;
+            aspect-ratio: 16/9;
+            background-color: var(--color-border);
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--color-dark-ink);
+            font-weight: 600;
+            border: 1px solid var(--color-red);
+            text-align: center;
+        }
+
+        .shipping-table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.95rem;
+            margin-top: 1rem;
+        }
+        .shipping-table th, .shipping-table td {
+            padding: 10px 15px;
+            border: 1px solid var(--color-border);
+        }
+        .shipping-table th {
+            background-color: var(--color-red);
+            color: white;
+            font-weight: 700;
+        }
+        .shipping-table tr:nth-child(even) {
+            background-color: #FAFAFA;
+        }
+
+        @media (min-width: 768px) {
+            .area-container {
+                flex-direction: row;
+            }
+            .area-container > div {
+                flex: 1;
+            }
+        }
+
+        /* ------------------
+        12. Footer
+        ------------------ */
+        .footer {
+            background-color: var(--color-dark-ink);
+            color: var(--color-off-white);
+            padding: 3rem 1rem;
+            font-size: 0.9rem;
+            text-align: center;
+        }
+
+        .footer-grid {
+            max-width: 1280px;
+            margin: 0 auto 1.5rem;
+            display: grid;
+            gap: 30px;
+            text-align: center;
+        }
+
+        .footer h4 {
+            font-size: 1.1rem;
+            color: var(--color-gold);
+            margin-bottom: 0.75rem;
+        }
+
+        .footer-contact a {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: var(--color-off-white);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .footer-contact a:hover {
+            color: var(--color-red);
+        }
+        
+        @media (min-width: 768px) {
+            .navbar {
+                padding: 1rem 2rem;
+            }
+            .nav-links {
+                display: flex;
+            }
+            .menu-toggle {
+                display: none;
+            }
+            .footer-grid {
+                grid-template-columns: repeat(3, 1fr);
+                text-align: left;
+            }
+            #hero h1 {
+                font-size: 4.5rem;
+            }
+            .section-divider {
+                height: 60px;
+            }
+            
+            /* Responsive form grid fix for full-width elements */
+            .form-grid > .form-group:last-of-type {
+                grid-column: 1 / 3; /* Ensure last element takes full width if needed */
+            }
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- Lightbox Overlay -->
+    <div id="lightbox" class="lightbox-overlay">
+        <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
+        <div class="lightbox-content">
+            <img id="lightbox-image" src="" alt="รูปภาพโต๊ะจีนขนาดใหญ่">
+        </div>
+    </div>
+
+    <!-- 1. Navbar -->
+    <nav class="navbar glass-premium">
+        <a href="#hero" class="logo">โต๊ะจีนเจริญมงคล</a>
+        
+        <!-- Toggle button for mobile (using emoji/text for simplicity) -->
+        <div class="menu-toggle" id="menu-toggle-btn">
+            &#9776; <!-- Hamburger icon -->
+        </div>
+
+        <div class="nav-links" id="nav-links">
+            <a href="#menu" data-nav="menu">เมนูอาหาร</a>
+            <a href="#pricing" data-nav="pricing">แพ็กเกจราคา</a>
+            <a href="#reviews" data-nav="reviews">รีวิวลูกค้า</a>
+            <a href="#gallery" data-nav="gallery">แกลเลอรี</a>
+            <a href="#contact" data-nav="contact">ติดต่อ</a>
+        </div>
+    </nav>
+
+    <!-- 2. Hero/Callout Section -->
+    <section id="hero">
+        <h1>โต๊ะจีนเจริญมงคล</h1>
+        <p>อร่อย คุ้มค่า จัดเต็มวัตถุดิบ พิถีพิถันทุกจาน<br>สืบสานตำนานความอร่อยมานานกว่า 30 ปี</p>
+        <a href="#contact" class="btn btn-primary">จองโต๊ะ / ขอใบเสนอราคา &nbsp; <span class="icon">&#127869;</span></a>
+    </section>
+
+    <!-- Divider -->
+    <div class="section-divider"><div class="section-divider-wave"></div></div>
+
+    <!-- 3. Menu Items -->
+    <section id="menu">
+        <h2>เมนูอาหารเด่น</h2>
+        <p class="subtitle">คัดสรรวัตถุดิบคุณภาพ นำเสนอเมนูซิกเนเจอร์ที่ได้รับความนิยมสูงสุด</p>
+
+        <div class="menu-grid">
+            
+            <!-- Item 1: หูฉลามน้ำแดง -->
+            <div class="card menu-item">
+                <span class="corner-ornament tl"></span>
+                <span class="corner-ornament br"></span>
+                <div class="icon">&#127857;</div>
+                <div class="menu-details">
+                    <h4>หูฉลามน้ำแดง</h4>
+                    <p>1,200 บาท</p>
+                </div>
+                <div class="menu-badge" title="เมนูแนะนำที่ลูกค้าสั่งมากที่สุด">ขายดี</div>
+            </div>
+
+            <!-- Item 2: เป็ดปักกิ่ง -->
+            <div class="card menu-item">
+                <span class="corner-ornament tl"></span>
+                <span class="corner-ornament br"></span>
+                <div class="icon">&#129427;</div>
+                <div class="menu-details">
+                    <h4>เป็ดปักกิ่ง</h4>
+                    <p>1,800 บาท</p>
+                </div>
+                <div class="menu-badge" title="เมนูที่เราภูมิใจนำเสนอ">ซิกเนเจอร์</div>
+            </div>
+
+            <!-- Item 3: กุ้งอบวุ้นเส้น -->
+            <div class="card menu-item">
+                <span class="corner-ornament tl"></span>
+                <span class="corner-ornament br"></span>
+                <div class="icon">&#129426;</div>
+                <div class="menu-details">
+                    <h4>กุ้งอบวุ้นเส้น</h4>
+                    <p>950 บาท</p>
+                </div>
+            </div>
+
+            <!-- Item 4: ปลาทอดราดพริกสามรส -->
+            <div class="card menu-item">
+                <span class="corner-ornament tl"></span>
+                <span class="corner-ornament br"></span>
+                <div class="icon">&#128031;</div>
+                <div class="menu-details">
+                    <h4>ปลาทอดราดพริกสามรส</h4>
+                    <p>850 บาท</p>
+                </div>
+            </div>
+
+            <!-- Item 5: ไก่แช่เหล้า -->
+            <div class="card menu-item">
+                <span class="corner-ornament tl"></span>
+                <span class="corner-ornament br"></span>
+                <div class="icon">&#127838;</div>
+                <div class="menu-details">
+                    <h4>ไก่แช่เหล้า</h4>
+                    <p>720 บาท</p>
+                </div>
+            </div>
+
+            <!-- Item 6: ขาหมูเยอรมัน -->
+            <div class="card menu-item">
+                <span class="corner-ornament tl"></span>
+                <span class="corner-ornament br"></span>
+                <div class="icon">&#127830;</div>
+                <div class="menu-details">
+                    <h4>ขาหมูเยอรมัน</h4>
+                    <p>990 บาท</p>
+                </div>
+            </div>
+
+            <!-- Item 7: เห็ดหอมตุ๋นยาจีน -->
+            <div class="card menu-item">
+                <span class="corner-ornament tl"></span>
+                <span class="corner-ornament br"></span>
+                <div class="icon">&#127870;</div>
+                <div class="menu-details">
+                    <h4>เห็ดหอมตุ๋นยาจีน</h4>
+                    <p>650 บาท</p>
+                </div>
+            </div>
+
+            <!-- Item 8: ผลไม้รวม -->
+            <div class="card menu-item">
+                <span class="corner-ornament tl"></span>
+                <span class="corner-ornament br"></span>
+                <div class="icon">&#127827;</div>
+                <div class="menu-details">
+                    <h4>ผลไม้รวม</h4>
+                    <p>450 บาท</p>
+                </div>
+            </div>
+            
+        </div>
+    </section>
+
+    <!-- Divider -->
+    <div class="section-divider"><div class="section-divider-wave"></div></div>
+
+    <!-- 4. Pricing Packages -->
+    <section id="pricing">
+        <h2>แพ็กเกจราคา</h2>
+        <p class="subtitle">เลือกชุดเมนูที่เหมาะกับงานของคุณ วัตถุดิบคุณภาพทุกระดับ</p>
+
+        <!-- Currency Toggle -->
+        <div class="pricing-toggle">
+            <span id="currency-thb" style="color: var(--color-red);">฿ THB</span>
+            <label class="toggle-switch">
+                <input type="checkbox" id="currency-toggle">
+                <span class="slider-round"></span>
+            </label>
+            <span id="currency-usd">$ USD</span>
+        </div>
+
+        <div class="pricing-grid">
+            
+            <!-- Package 1: มงคลเริ่มต้น -->
+            <div class="card price-card">
+                <h3>ชุดมงคลเริ่มต้น</h3>
+                <span class="price" data-thb="3,990" data-usd="114">฿ 3,990</span>
+                <ul>
+                    <li>✅ 8 เมนูอาหารมาตรฐาน</li>
+                    <li>✅ วัตถุดิบคุณภาพ, คุ้มค่าที่สุด</li>
+                    <li>✅ สำหรับงานขนาดเล็ก-กลาง</li>
+                    <li>✅ บริการจัดโต๊ะและภาชนะ</li>
+                    <li>❌ ซีฟู้ดพรีเมียม</li>
+                    <li>❌ น้ำอัดลมไม่อั้น</li>
+                </ul>
+                <a href="#contact" class="btn btn-secondary">เลือกชุดนี้</a>
+                <p class="note">เริ่มต้นที่ 3,990 บาท/โต๊ะ</p>
+            </div>
+
+            <!-- Package 2: มั่งคั่ง (Featured) -->
+            <div class="card price-card featured">
+                <span class="corner-ornament tl"></span>
+                <span class="corner-ornament tr"></span>
+                <span class="corner-ornament bl"></span>
+                <span class="corner-ornament br"></span>
+                <h3>ชุดมั่งคั่ง</h3>
+                <span class="price" data-thb="5,990" data-usd="171">฿ 5,990</span>
+                <ul>
+                    <li>✅ 9 เมนู (อัปเกรดวัตถุดิบ)</li>
+                    <li>✅ ซีฟู้ดพรีเมียม 1 รายการ</li>
+                    <li>✅ เป็ดปักกิ่ง หรือ ขาหมูเยอรมัน</li>
+                    <li>✅ สำหรับงานเลี้ยงทุกประเภท</li>
+                    <li>✅ ออกแบบการจัดเลี้ยงให้</li>
+                    <li>❌ น้ำอัดลมไม่อั้น</li>
+                </ul>
+                <a href="#contact" class="btn btn-primary">จองชุดยอดนิยม</a>
+                <p class="note">แนะนำสำหรับงานมงคลสมรสและงานบวช</p>
+            </div>
+
+            <!-- Package 3: มหามงคล -->
+            <div class="card price-card">
+                <h3>ชุดมหามงคล</h3>
+                <span class="price" data-thb="7,990" data-usd="228">฿ 7,990</span>
+                <ul>
+                    <li>✅ 10 เมนูซิกเนเจอร์</li>
+                    <li>✅ ซีฟู้ดพรีเมียม 2 รายการ</li>
+                    <li>✅ ของหวานพิเศษ/ไอศกรีม</li>
+                    <li>✅ น้ำอัดลมและน้ำเปล่าไม่อั้น</li>
+                    <li>✅ ทีมบริการระดับ VIP</li>
+                    <li>✅ ส่วนลดพิเศษสำหรับลูกค้าเก่า</li>
+                </ul>
+                <a href="#contact" class="btn btn-secondary">เลือกชุดนี้</a>
+                <p class="note">ชุดที่ดีที่สุดสำหรับงานเลี้ยงสุดพิเศษ</p>
+            </div>
+
+        </div>
+
+        <div style="margin-top: 3rem; font-size: 1.1rem; color: var(--color-red); font-weight: 600;">
+            <p>หมายเหตุสำคัญ:</p>
+            <p style="margin-top: 0.5rem; font-weight: 400; color: var(--color-dark-ink);">* ขั้นต่ำ 10 โต๊ะขึ้นไปสำหรับการจัดเลี้ยงนอกสถานที่</p>
+            <p style="font-weight: 400; color: var(--color-dark-ink);">* รับส่วนลดพิเศษสำหรับงานแต่ง งานบวช และงานขึ้นบ้านใหม่</p>
+            <p style="font-weight: 400; color: var(--color-dark-ink);">* สามารถออกใบกำกับภาษีได้</p>
+        </div>
+    </section>
+
+    <!-- Divider -->
+    <div class="section-divider"><div class="section-divider-wave"></div></div>
+
+    <!-- 5. Review Section -->
+    <section id="reviews">
+        <h2>รีวิวจากลูกค้า</h2>
+        <p class="subtitle">ความไว้วางใจจากผู้ใช้บริการ คือความภาคภูมิใจของเรา</p>
+        <div class="reviews-grid">
+            
+            <div class="card review-card">
+                <div class="rating">★★★★★</div>
+                <p>"อาหารอร่อยมาก ทุกคนชมว่ารสชาติดี จัดจ้านถูกปาก โดยเฉพาะเป็ดปักกิ่ง หนังกรอบจริง ๆ ค่ะ"</p>
+                <span class="author">— คุณ A. (งานมงคลสมรส)</span>
+            </div>
+
+            <div class="card review-card">
+                <div class="rating">★★★★★</div>
+                <p>"ทีมงานบริการดีเยี่ยม จัดโต๊ะได้สวยงามและรวดเร็ว วัตถุดิบสดใหม่ คุ้มค่าเกินราคาที่จ่ายไปมาก ๆ ครับ"</p>
+                <span class="author">— คุณ B. (งานเลี้ยงบริษัท)</span>
+            </div>
+
+            <div class="card review-card">
+                <div class="rating">★★★★☆</div>
+                <p>"ถูกใจชุดมหามงคลมากครับ ของหวานอร่อยเป็นพิเศษ มีน้ำอัดลมให้ไม่อั้นด้วย ขอติตรงการเดินทางนิดหน่อยครับ"</p>
+                <span class="author">— คุณ C. (งานบวช)</span>
+            </div>
+            
+            <div class="card review-card">
+                <div class="rating">★★★★★</div>
+                <p>"สั่งโต๊ะจีนเจริญมงคลมา 3 งานแล้ว ไม่เคยผิดหวัง รสชาติคงที่มาตรฐานยอดเยี่ยม ทุกคนอิ่มอร่อยกลับบ้านครับ"</p>
+                <span class="author">— คุณ D. (งานขึ้นบ้านใหม่)</span>
+            </div>
+
+        </div>
+    </section>
+
+    <!-- Divider -->
+    <div class="section-divider"><div class="section-divider-wave"></div></div>
+
+    <!-- 6. Gallery Section -->
+    <section id="gallery">
+        <h2>แกลเลอรี</h2>
+        <p class="subtitle">ภาพความประทับใจจากงานจัดเลี้ยงที่ผ่านมา</p>
+        <div class="gallery-grid">
+            <!-- Placeholders (using data URI for simplicity and single-file constraint) -->
+            <div class="gallery-item" onclick="openLightbox('https://placehold.co/600x600/B91C1C/FFF7ED?text=โต๊ะจีน+Set')">
+                <img src="https://placehold.co/300x300/B91C1C/FFF7ED?text=โต๊ะจีน+Set" alt="ภาพรวมการจัดโต๊ะจีนในงานเลี้ยง">
+            </div>
+            <div class="gallery-item" onclick="openLightbox('https://placehold.co/600x600/F59E0B/0F172A?text=เป็ดปักกิ่ง')">
+                <img src="https://placehold.co/300x300/F59E0B/0F172A?text=เป็ดปักกิ่ง" alt="เมนูเป็ดปักกิ่งหนังกรอบ">
+            </div>
+            <div class="gallery-item" onclick="openLightbox('https://placehold.co/600x600/0F172A/FFF7ED?text=กุ้งอบวุ้นเส้น')">
+                <img src="https://placehold.co/300x300/0F172A/FFF7ED?text=กุ้งอบวุ้นเส้น" alt="เมนูกุ้งอบวุ้นเส้นพร้อมกุ้งตัวโต">
+            </div>
+            <div class="gallery-item" onclick="openLightbox('https://placehold.co/600x600/FFF7ED/B91C1C?text=จัดเลี้ยงสวยงาม')">
+                <img src="https://placehold.co/300x300/FFF7ED/B91C1C?text=จัดเลี้ยงสวยงาม" alt="บรรยากาศการจัดเลี้ยงที่ตกแต่งอย่างสวยงาม">
+            </div>
+            <div class="gallery-item" onclick="openLightbox('https://placehold.co/600x600/B91C1C/FFF7ED?text=ปลาทอด')">
+                <img src="https://placehold.co/300x300/B91C1C/FFF7ED?text=ปลาทอด" alt="เมนูปลาทอดสามรส">
+            </div>
+            <div class="gallery-item" onclick="openLightbox('https://placehold.co/600x600/F59E0B/0F172A?text=ทีมงาน')">
+                <img src="https://placehold.co/300x300/F59E0B/0F172A?text=ทีมงาน" alt="ภาพทีมงานขณะเตรียมการ">
+            </div>
+        </div>
+    </section>
+
+    <!-- Divider -->
+    <div class="section-divider"><div class="section-divider-wave"></div></div>
+
+    <!-- 7. Service Area & Shipping Costs -->
+    <section id="area">
+        <h2>เขตให้บริการและค่าขนส่ง</h2>
+        <p class="subtitle">บริการจัดส่งทั่วประเทศ พร้อมค่าบริการที่โปร่งใส</p>
+
+        <div class="area-container">
+            <div>
+                <h3>พื้นที่จัดส่งหลัก</h3>
+                <div class="map-placeholder">
+                    <p>แผนที่เขตพื้นที่บริการหลัก (กทม. และปริมณฑล)</p>
+                </div>
+            </div>
+            
+            <div>
+                <h3>ตารางค่าขนส่งโดยประมาณ</h3>
+                <table class="shipping-table">
+                    <thead>
+                        <tr>
+                            <th>พื้นที่</th>
+                            <th>ค่าขนส่ง (เริ่มต้น)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>กรุงเทพฯ (ในเขต)</td>
+                            <td>ฟรี! (สำหรับ 20 โต๊ะขึ้นไป)</td>
+                        </tr>
+                        <tr>
+                            <td>กรุงเทพฯ (นอกเขต) / ปริมณฑล</td>
+                            <td>1,500 บาท</td>
+                        </tr>
+                        <tr>
+                            <td>ต่างจังหวัด (ภาคกลาง / ตะวันออก)</td>
+                            <td>2,500 บาท</td>
+                        </tr>
+                        <tr>
+                            <td>ต่างจังหวัด (อื่น ๆ)</td>
+                            <td>กรุณาสอบถาม</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- 8. Booking Form -->
+    <section id="contact">
+        <h2>ติดต่อ & ขอใบเสนอราคา</h2>
+        <p class="subtitle">กรอกรายละเอียดงานเพื่อรับการติดต่อกลับและใบเสนอราคาที่เหมาะสม</p>
+
+        <div class="card form-container">
+            <div id="booking-form-section">
+                <form id="booking-form">
+                    <div class="form-grid">
+                        
+                        <!-- 1. ชื่อ-นามสกุล -->
+                        <div class="form-group">
+                            <label for="name">ชื่อ-นามสกุล *</label>
+                            <input type="text" id="name" name="name" placeholder="ชื่อผู้ติดต่อ" required aria-describedby="name-error">
+                            <span id="name-error" class="error-message"></span>
+                        </div>
+
+                        <!-- 2. เบอร์โทร -->
+                        <div class="form-group">
+                            <label for="phone-form">เบอร์โทรศัพท์ *</label>
+                            <input type="tel" id="phone-form" name="phone-form" placeholder="เช่น 08x-xxx-xxxx" required pattern="[0-9]{9,10}" aria-describedby="phone-error">
+                            <span id="phone-error" class="error-message"></span>
+                        </div>
+                        
+                        <!-- 3. ไลน์/อีเมล -->
+                        <div class="form-group">
+                            <label for="line-email">ไลน์ ID / อีเมล *</label>
+                            <input type="text" id="line-email" name="line-email" placeholder="ไลน์ไอดี หรือ อีเมล" required aria-describedby="email-error">
+                            <span id="email-error" class="error-message"></span>
+                        </div>
+
+                        <!-- 4. วันที่จัดงาน -->
+                        <div class="form-group">
+                            <label for="date">วันที่จัดงาน *</label>
+                            <input type="date" id="date" name="date" required aria-describedby="date-error">
+                            <span id="date-error" class="error-message"></span>
+                        </div>
+
+                        <!-- 5. สถานที่/อำเภอ -->
+                        <div class="form-group full-width">
+                            <label for="location">สถานที่จัดงาน / อำเภอ *</label>
+                            <input type="text" id="location" name="location" placeholder="เช่น บ้านเลขที่ 100, อ.เมือง จ.เชียงใหม่" required aria-describedby="location-error">
+                            <span id="location-error" class="error-message"></span>
+                        </div>
+
+                        <!-- 6. จำนวนโต๊ะ -->
+                        <div class="form-group">
+                            <label for="table-count">จำนวนโต๊ะ (ขั้นต่ำ 10) *</label>
+                            <input type="number" id="table-count" name="table-count" min="10" value="10" required aria-describedby="count-error">
+                            <span id="count-error" class="error-message"></span>
+                        </div>
+
+                        <!-- 7. แพ็กเกจที่เลือก -->
+                        <div class="form-group">
+                            <label for="package">แพ็กเกจที่สนใจ</label>
+                            <select id="package" name="package">
+                                <option value="มงคลเริ่มต้น">ชุดมงคลเริ่มต้น (3,990 บาท)</option>
+                                <option value="มั่งคั่ง" selected>ชุดมั่งคั่ง (5,990 บาท) - แนะนำ</option>
+                                <option value="มหามงคล">ชุดมหามงคล (7,990 บาท)</option>
+                                <option value="ไม่ระบุ">ยังไม่แน่ใจ / ขอคำแนะนำ</option>
+                            </select>
+                        </div>
+                        
+                        <!-- 8. หมายเหตุพิเศษ -->
+                        <div class="form-group full-width">
+                            <label for="notes">หมายเหตุพิเศษ</label>
+                            <textarea id="notes" name="notes" rows="3" placeholder="เช่น ประเภทงาน (แต่ง/บวช), ข้อจำกัดด้านอาหาร, วัน/เวลาที่สะดวกให้ติดต่อกลับ"></textarea>
+                        </div>
+
+                    </div>
+                    
+                    <div class="full-width" style="margin-top: 20px;">
+                        <button type="submit" class="btn btn-primary" style="width: 100%;">ส่งคำขอใบเสนอราคา &nbsp; <span class="icon">&#128230;</span></button>
+                    </div>
+                </form>
+            </div>
+            
+            <div id="booking-success" class="booking-success">
+                <p style="font-size: 2rem;">&#10003;</p>
+                <h3 style="color: #065F46; margin-top: 10px;">ส่งคำขอเรียบร้อยแล้ว!</h3>
+                <p>ทีมงาน "โต๊ะจีนเจริญมงคล" จะติดต่อกลับภายใน 24 ชั่วโมง เพื่อยืนยันรายละเอียดครับ/ค่ะ</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- 9. Footer -->
+    <footer class="footer">
+        <div class="footer-grid">
+            <div class="footer-contact">
+                <h4>ติดต่อเรา</h4>
+                <a href="tel:089xxxxxxx"><span class="icon">&#128222;</span> โทร: 08x-xxx-xxxx</a>
+                <a href="https://line.me/R/ti/p/@charoenmongkol" target="_blank"><span class="icon">&#128227;</span> LINE ID: @charoenmongkol</a>
+                <a href="https://facebook.com/charoenmongkol" target="_blank"><span class="icon">&#128190;</span> Facebook: โต๊ะจีนเจริญมงคล</a>
+            </div>
+            
+            <div>
+                <h4>เวลาทำการ</h4>
+                <p>เปิดทำการ: 09:00–19:00 น. ทุกวัน</p>
+                <p style="margin-top: 10px;">** รับงานแต่ง งานบวช งานขึ้นบ้านใหม่ งานเลี้ยงบริษัท **</p>
+            </div>
+            
+            <div>
+                <h4>ข้อมูลองค์กร</h4>
+                <p>ทะเบียนพาณิชย์: 1234567890</p>
+                <p>เลขผู้เสียภาษี: 01055xxxxxxxx</p>
+                <p style="margin-top: 10px;">รับประกันความอร่อยและคุณภาพวัตถุดิบทุกจาน</p>
+            </div>
+        </div>
+        <p style="margin-top: 2rem; opacity: 0.7;">&copy; 2024 โต๊ะจีนเจริญมงคล. All rights reserved.</p>
+    </footer>
+
+    <script>
+        /* ------------------
+        JavaScript for Interactivity
+        ------------------ */
+
+        const form = document.getElementById('booking-form');
+        const priceElements = document.querySelectorAll('.price');
+        const currencyToggle = document.getElementById('currency-toggle');
+        const currencyThb = document.getElementById('currency-thb');
+        const currencyUsd = document.getElementById('currency-usd');
+        const lightbox = document.getElementById('lightbox');
+        const lightboxImage = document.getElementById('lightbox-image');
+
+        const USD_RATE = 35.0; // สมมติเรต 35 บาทต่อ 1 USD
+
+        // ===================================
+        // A. Currency Toggle Functionality
+        // ===================================
+
+        /**
+         * Toggles the displayed currency between THB and USD.
+         */
+        function toggleCurrency() {
+            const isUSD = currencyToggle.checked;
+
+            priceElements.forEach(el => {
+                const thbPrice = el.getAttribute('data-thb');
+                const usdPrice = el.getAttribute('data-usd');
+
+                if (isUSD) {
+                    el.textContent = `$ ${usdPrice}`;
+                } else {
+                    el.textContent = `฿ ${thbPrice}`;
+                }
+            });
+
+            // Highlight the active currency
+            currencyThb.style.color = isUSD ? 'var(--color-dark-ink)' : 'var(--color-red)';
+            currencyUsd.style.color = isUSD ? 'var(--color-red)' : 'var(--color-dark-ink)';
+        }
+
+        currencyToggle.addEventListener('change', toggleCurrency);
+        // Initial call to set default currency state
+        window.addEventListener('load', toggleCurrency); 
+
+        // ===================================
+        // B. Lightbox Functionality
+        // ===================================
+
+        /**
+         * Opens the lightbox with the specified image URL.
+         * @param {string} url - The URL (or placeholder data) of the image.
+         */
+        function openLightbox(url) {
+            lightboxImage.src = url;
+            lightbox.style.display = 'flex';
+        }
+
+        /**
+         * Closes the lightbox.
+         */
+        function closeLightbox() {
+            lightbox.style.display = 'none';
+            lightboxImage.src = '';
+        }
+        
+        // Close lightbox when clicking outside the image
+        lightbox.addEventListener('click', (e) => {
+            if (e.target === lightbox) {
+                closeLightbox();
+            }
+        });
+
+        // ===================================
+        // C. Form Validation and Submission (Simulated)
+        // ===================================
+        
+        /**
+         * Sets error state for an input field.
+         * @param {string} fieldId - The ID of the input field.
+         * @param {string} errorId - The ID of the error message element.
+         * @param {string} message - The error message to display.
+         * @returns {boolean} always false
+         */
+        function setError(fieldId, errorId, message) {
+            const input = document.getElementById(fieldId);
+            const error = document.getElementById(errorId);
+            input.classList.add('input-error');
+            input.setAttribute('aria-invalid', 'true');
+            error.textContent = message;
+            return false;
+        }
+
+        /**
+         * Clears error state for an input field.
+         * @param {string} fieldId - The ID of the input field.
+         * @param {string} errorId - The ID of the error message element.
+         * @returns {boolean} always true
+         */
+        function clearError(fieldId, errorId) {
+            const input = document.getElementById(fieldId);
+            const error = document.getElementById(errorId);
+            input.classList.remove('input-error');
+            input.removeAttribute('aria-invalid');
+            error.textContent = '';
+            return true;
+        }
+
+        /**
+         * Validates all required form fields.
+         * @returns {boolean} True if all required fields are valid, false otherwise.
+         */
+        function validateForm() {
+            let isValid = true;
+            const name = document.getElementById('name').value.trim();
+            const phone = document.getElementById('phone-form').value.trim();
+            const emailOrLine = document.getElementById('line-email').value.trim();
+            const date = document.getElementById('date').value.trim();
+            const location = document.getElementById('location').value.trim();
+            const tableCount = parseInt(document.getElementById('table-count').value.trim());
+
+            // 1. Name
+            if (name === '') { isValid = setError('name', 'name-error', 'กรุณากรอกชื่อ-นามสกุล') && isValid; } 
+            else { clearError('name', 'name-error'); }
+
+            // 2. Phone (9 or 10 digits only)
+            const phoneRegex = /^\d{9,10}$/;
+            if (!phoneRegex.test(phone)) { isValid = setError('phone-form', 'phone-error', 'กรุณากรอกเบอร์โทร 9-10 หลัก (เฉพาะตัวเลข)') && isValid; }
+            else { clearError('phone-form', 'phone-error'); }
+
+            // 3. Line/Email
+            if (emailOrLine === '') { isValid = setError('line-email', 'email-error', 'กรุณากรอกไลน์ ID หรืออีเมล') && isValid; }
+            else { clearError('line-email', 'email-error'); }
+
+            // 4. Date
+            if (date === '') { isValid = setError('date', 'date-error', 'กรุณาระบุวันที่จัดงาน') && isValid; }
+            else { clearError('date', 'date-error'); }
+
+            // 5. Location
+            if (location === '') { isValid = setError('location', 'location-error', 'กรุณาระบุสถานที่จัดงาน') && isValid; }
+            else { clearError('location', 'location-error'); }
+
+            // 6. Table Count (Min 10)
+            if (isNaN(tableCount) || tableCount < 10) { isValid = setError('table-count', 'count-error', 'จำนวนโต๊ะต้องไม่ต่ำกว่า 10') && isValid; }
+            else { clearError('table-count', 'count-error'); }
+
+            return isValid;
+        }
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            if (validateForm()) {
+                const submitBtn = form.querySelector('.btn-primary');
+                const originalText = submitBtn.innerHTML;
+
+                // Show Loading State
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = 'กำลังส่ง...';
+
+                // Simulate API call delay
+                await new Promise(resolve => setTimeout(resolve, 1500)); 
+
+                // Process data (for demonstration)
+                const formData = new FormData(form);
+                const data = Object.fromEntries(formData.entries());
+                console.log('Booking Request Sent:', data);
+
+                // Show success message
+                document.getElementById('booking-form-section').style.display = 'none';
+                document.getElementById('booking-success').style.display = 'block';
+                
+                // Reset button state (optional, as the form disappears)
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalText;
+            }
+        });
+
+
+        // ===================================
+        // D. Smooth Scroll & Mobile Menu
+        // ===================================
+        
+        const navLinksContainer = document.getElementById('nav-links');
+        const menuToggleBtn = document.getElementById('menu-toggle-btn');
+
+        // Toggle mobile menu visibility
+        menuToggleBtn.addEventListener('click', () => {
+            navLinksContainer.classList.toggle('active');
+            // Basic mobile menu implementation:
+            if (navLinksContainer.classList.contains('active')) {
+                // For simplicity in single-file, we just use a small fix here
+                navLinksContainer.style.display = 'flex';
+                navLinksContainer.style.flexDirection = 'column';
+                navLinksContainer.style.position = 'absolute';
+                navLinksContainer.style.top = '100%';
+                navLinksContainer.style.left = '0';
+                navLinksContainer.style.width = '100%';
+                navLinksContainer.style.backgroundColor = 'var(--color-off-white)';
+                navLinksContainer.style.padding = '10px 0';
+                navLinksContainer.style.boxShadow = '0 5px 5px rgba(0,0,0,0.1)';
+            } else {
+                navLinksContainer.style.display = 'none';
+            }
+        });
+
+        // Set active class on scroll
+        const sections = document.querySelectorAll('section');
+        const navItems = document.querySelectorAll('.nav-links a');
+
+        window.addEventListener('scroll', () => {
+            let current = '';
+            sections.forEach(section => {
+                const sectionTop = section.offsetTop - 100; // Offset for sticky navbar
+                const sectionHeight = section.clientHeight;
+                if (pageYOffset >= sectionTop) {
+                    current = section.getAttribute('id');
+                }
+            });
+
+            navItems.forEach(a => {
+                a.classList.remove('active');
+                if (a.getAttribute('href').includes(current)) {
+                    a.classList.add('active');
+                }
+            });
+        });
+
+        // Close mobile menu on link click
+        navLinksContainer.querySelectorAll('a').forEach(link => {
+            link.addEventListener('click', () => {
+                if (window.innerWidth < 768) {
+                    navLinksContainer.classList.remove('active');
+                    navLinksContainer.style.display = 'none';
+                }
+            });
+        });
+
+    </script>
+</body>
+</html>
