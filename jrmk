@@ -1,1427 +1,930 @@
-<!DOCTYPE html>
-<html lang="th">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>โต๊ะจีนเจริญมงคล | บริการโต๊ะจีนพรีเมียม อร่อย คุ้มค่า พิถีพิถันทุกจาน</title>
-    <meta name="description" content="โต๊ะจีนเจริญมงคล บริการจัดเลี้ยงโต๊ะจีนคุณภาพสูงสำหรับงานมงคลสมรส งานบวช และงานเลี้ยงองค์กร ด้วยวัตถุดิบพรีเมียม และราคาคุ้มค่า">
-    <meta property="og:title" content="โต๊ะจีนเจริญมงคล">
-    <meta property="og:description" content="บริการโต๊ะจีนพรีเมียม ราคาเริ่มต้น 3,990 บาท">
-    <meta property="og:type" content="website">
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from 'firebase/auth';
+import { getFirestore, doc, setDoc, collection, serverTimestamp, onSnapshot, query, updateDoc, deleteDoc } from 'firebase/firestore';
 
-    <style>
-        /* ------------------
-        1. CSS Variables and Fonts
-        ------------------ */
-        :root {
-            /* Colors - Chinese Theme */
-            --color-red: #B91C1C; /* Main Red */
-            --color-red-dark: #991B1B; /* Darker Red for hover/active */
-            --color-gold: #F59E0B; /* Main Gold */
-            --color-gold-light: #FCD34D;
-            --color-off-white: #FFF7ED; /* Ivory Background */
-            --color-dark-ink: #0F172A; /* Text and Dark elements */
-            --color-border: #D1D5DB; /* Light Gray for lines */
+// ----------------------------------------------------
+// 1. Data Definitions
+// ----------------------------------------------------
 
-            /* Typography & Spacing */
-            --font-stack: "Noto Sans Thai", "Sarabun", system-ui, -apple-system, sans-serif;
-            --spacing-lg: 4rem;
-            --radius-md: 12px;
-            --radius-lg: 16px;
+// Data definition remains in a standard JS object array format.
+const packagesData = [
+    { id: 'standard', name: 'มงคล (Standard)', price: 3990, features: ['เมนูเริ่มต้น 8 อย่าง', 'เครื่องดื่มสมุนไพร', 'บริการตกแต่งดอกไม้ (ไม่มี)'] },
+    { id: 'premium', name: 'มั่งคั่ง (Premium)', price: 5990, features: ['เมนูพรีเมียม 10 อย่าง', 'เครื่องดื่มซอฟต์ดริงค์/น้ำสมุนไพรไม่อั้น', 'ฟรี! บริการตกแต่งดอกไม้'], isRecommended: true },
+    { id: 'exclusive', name: 'จักรพรรดิ (Exclusive)', price: 7990, features: ['เมนูซิกเนเจอร์ 12 อย่าง (ปรับได้)', 'เครื่องดื่มและมิกเซอร์ครบชุด', 'ที่ปรึกษาการจัดเลี้ยงส่วนตัว'] },
+];
+
+const addonsData = [
+    { id: 'addon1', name: 'ข้าวผัดหยางโจว', price: 450, description: 'ข้าวหอมมะลิผัดกับกุ้ง หมูแดง และเครื่องเทศอย่างลงตัว' },
+    { id: 'addon2', name: 'ซุปเสฉวนรสเผ็ด', price: 550, description: 'ซุปร้อนๆ รสชาติเผ็ดเปรี้ยว กลมกล่อม สไตล์เสฉวนแท้ๆ' },
+    { id: 'addon3', name: 'ขาหมูยัดไส้ (หนึ่งขา)', price: 1500, description: 'ขาหมูตุ๋นจนเปื่อยนุ่ม ยัดไส้ด้วยเห็ดหอมและสมุนไพรจีน' },
+    { id: 'addon4', name: 'สลัดกุ้งมังกร (พรีเมียม)', price: 4500, description: 'เมนูพิเศษสำหรับงานหรูหรา กุ้งมังกรสดๆ เสิร์ฟพร้อมน้ำสลัดสูตรเฉพาะ' },
+];
+
+// Helper function for currency formatting (Thai locale)
+const formatCurrency = (num) => num.toLocaleString('th-TH') + '.-';
+
+// Constants for Admin Login
+const ADMIN_USERNAME = 'admin';
+const ADMIN_PASSWORD = '1234';
+
+// Status options for orders (Admin can change these)
+const ORDER_STATUSES = {
+    'Pending Contact': { label: 'รอลูกค้าติดต่อ', color: 'bg-yellow-100 text-yellow-800' },
+    'Confirmed': { label: 'ยืนยันแล้ว', color: 'bg-green-100 text-green-800' },
+    'Canceled': { label: 'ยกเลิก', color: 'bg-red-100 text-red-800' },
+    'Completed': { label: 'จัดงานเสร็จสิ้น', color: 'bg-blue-100 text-blue-800' },
+};
+
+// ----------------------------------------------------
+// 2. Main App Component
+// ----------------------------------------------------
+
+export default function App() {
+    // Firebase States
+    const [db, setDb] = useState(null);
+    const [auth, setAuth] = useState(null);
+    const [userId, setUserId] = useState(null);
+    const [isAuthReady, setIsAuthReady] = useState(false);
+    
+    // UI Mode State: 'order' (default), 'admin-login', 'admin-dashboard'
+    const [appMode, setAppMode] = useState('order');
+    const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
+    const [loginError, setLoginError] = useState('');
+
+    // Order & UI States
+    const [selectedPackageId, setSelectedPackageId] = useState(null);
+    const [selectedAddons, setSelectedAddons] = useState([]);
+    const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const [tableQuantity, setTableQuantity] = useState(1);
+    const [isOrderProcessing, setIsOrderProcessing] = useState(false);
+    const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+
+    // Dialog States for error/confirmation replacement (New)
+    const [errorMessage, setErrorMessage] = useState('');
+    const [confirmation, setConfirmation] = useState(null); // { message, onConfirm }
+
+
+    // --- Firebase Initialization and Authentication ---
+    useEffect(() => {
+        const initFirebase = async () => {
+            if (typeof __firebase_config === 'undefined' || typeof __app_id === 'undefined') {
+                console.error("Firebase configuration variables are missing.");
+                setIsAuthReady(true);
+                return;
+            }
+
+            try {
+                const firebaseConfig = JSON.parse(__firebase_config);
+                const app = initializeApp(firebaseConfig);
+                const firestoreDb = getFirestore(app);
+                const firebaseAuth = getAuth(app);
+
+                setDb(firestoreDb);
+                setAuth(firebaseAuth);
+
+                // Authentication logic: Set listener and attempt sign-in
+                onAuthStateChanged(firebaseAuth, async (user) => {
+                    if (user) {
+                        setUserId(user.uid);
+                    } else if (typeof __initial_auth_token !== 'undefined') {
+                        // Sign in with custom token if available
+                        try {
+                            await signInWithCustomToken(firebaseAuth, __initial_auth_token);
+                        } catch (error) {
+                            console.error("Custom token sign-in failed, falling back to anonymous.", error);
+                            await signInAnonymously(firebaseAuth);
+                        }
+                    } else {
+                        // Fallback to anonymous sign-in
+                        await signInAnonymously(firebaseAuth);
+                    }
+                    setIsAuthReady(true);
+                });
+            } catch (error) {
+                console.error("Firebase initialization failed:", error);
+                setIsAuthReady(true);
+            }
+        };
+
+        initFirebase();
+    }, []);
+
+    // Admin Handlers
+    const handleAdminLogin = (username, password) => {
+        if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+            setIsAdminLoggedIn(true);
+            setAppMode('admin-dashboard');
+            setLoginError('');
+        } else {
+            setLoginError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบ User: admin และ Pass: 1234');
         }
+    };
 
-        /* ------------------
-        2. Global Reset and Base Styles
-        ------------------ */
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
+    const handleAdminLogout = () => {
+        setIsAdminLoggedIn(false);
+        setAppMode('order');
+        setLoginError('');
+        // Optional: Sign out from Firebase Auth if the admin user used a special account
+        if (auth) {
+            signOut(auth).catch(console.error);
         }
+    };
+    
+    // ----------------------------------------------------
+    // 3. Sub-Components (and Custom Dialogs)
+    // ----------------------------------------------------
+    
+    // Custom Alert Dialog Component (NEW) - Replaces alert()
+    const CustomAlertDialog = ({ message, onClose }) => {
+        if (!message) return null;
+        return (
+            <div className="fixed inset-0 bg-black bg-opacity-75 z-[110] flex items-center justify-center p-4">
+                <div className="bg-white p-6 rounded-xl max-w-sm w-full text-center shadow-2xl border-t-4 border-red-700">
+                    <h4 className="text-xl font-bold text-red-700 mb-4">ข้อผิดพลาด</h4>
+                    <p className="text-gray-700 mb-6">{message}</p>
+                    <button
+                        onClick={onClose}
+                        className="bg-red-700 text-white font-bold px-4 py-2 rounded-lg hover:bg-red-800 transition duration-300 w-full"
+                    >
+                        รับทราบ
+                    </button>
+                </div>
+            </div>
+        );
+    };
 
-        html {
-            scroll-behavior: smooth;
-        }
-
-        body {
-            font-family: var(--font-stack);
-            line-height: 1.6;
-            color: var(--color-dark-ink);
-            background-color: var(--color-off-white);
-            /* Chinese Cloud Pattern SVG (6% opacity) */
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 100 100'%3E%3Cdefs%3E%3Cfilter id='a' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.5' numOctaves='3' seed='100'/%3E%3CfeColorMatrix values='1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 20 -10'/%3E%3C/filter%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='%23FFF7ED'/%3E%3Crect width='100%25' height='100%25' opacity='.06' filter='url(%23a)' fill='%23B91C1C'/%3E%3C/svg%3E");
-        }
-
-        section {
-            padding: var(--spacing-lg) 1rem;
-            max-width: 1280px;
-            margin: 0 auto;
-        }
-
-        h2 {
-            font-size: 2.5rem;
-            font-weight: 700;
-            margin-bottom: 0.5rem;
-            text-align: center;
-            color: var(--color-red);
-            text-shadow: 1px 1px 0 var(--color-dark-ink);
-        }
-
-        h3 {
-            font-size: 1.5rem;
-            font-weight: 600;
-            margin-bottom: 1rem;
-        }
-
-        .subtitle {
-            text-align: center;
-            color: var(--color-dark-ink);
-            margin-bottom: 3rem;
-            font-size: 1.125rem;
-        }
-
-        /* ------------------
-        3. Utility & Components
-        ------------------ */
-
-        /* Button Styling (CTA) */
-        .btn {
-            display: inline-flex;
-            justify-content: center;
-            align-items: center;
-            padding: 0.75rem 1.75rem;
-            border-radius: var(--radius-md);
-            font-weight: 700;
-            font-size: 1.1rem;
-            cursor: pointer;
-            border: 2px solid transparent;
-            text-decoration: none;
-            transition: all 0.2s ease-in-out;
-            text-transform: none; /* Ensure no unwanted capitalization */
-        }
-
-        .btn-primary {
-            background-color: var(--color-red);
-            color: var(--color-off-white);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 0 0 2px var(--color-gold);
-        }
-
-        .btn-primary:hover, .btn-primary:focus {
-            background-color: var(--color-red-dark);
-            box-shadow: 0 8px 10px -3px rgba(0, 0, 0, 0.3), 0 0 0 4px var(--color-gold);
-            transform: translateY(-2px);
-        }
-
-        .btn-secondary {
-            background-color: var(--color-gold);
-            color: var(--color-dark-ink);
-            border: 2px solid var(--color-dark-ink);
-        }
-
-        .btn-secondary:hover {
-            background-color: var(--color-gold-light);
-            transform: translateY(-1px);
-        }
-
-        /* Gold Corner Ornament (Minimalist) */
-        .card {
-            background-color: #FFFFFF;
-            border: 1px solid var(--color-border);
-            border-radius: var(--radius-lg);
-            padding: 1.5rem;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
-            position: relative;
-            overflow: hidden;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-
-        .card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
-        }
-
-        .corner-ornament {
-            position: absolute;
-            width: 20px;
-            height: 20px;
-            border: 3px solid var(--color-gold);
-            opacity: 0.8;
-        }
-        .corner-ornament.tl { top: 0; left: 0; border-right: none; border-bottom: none; border-radius: 8px 0 0 0; }
-        .corner-ornament.tr { top: 0; right: 0; border-left: none; border-bottom: none; border-radius: 0 8px 0 0; }
-        .corner-ornament.bl { bottom: 0; left: 0; border-right: none; border-top: none; border-radius: 0 0 0 8px; }
-        .corner-ornament.br { bottom: 0; right: 0; border-left: none; border-top: none; border-radius: 0 0 8px 0; }
-
-        /* Icon styling */
-        .icon {
-            font-size: 1.5rem;
-            color: var(--color-red);
-            margin-right: 0.5rem;
-        }
-
-        /* Divider */
-        .section-divider {
-            width: 100%;
-            height: 40px;
-            overflow: hidden;
-            margin: 0 auto;
-        }
-        .section-divider-wave {
-            width: 200%;
-            height: 100%;
-            background: linear-gradient(135deg, var(--color-red) 50%, var(--color-gold) 50%);
-            border-radius: 0 0 50% 50%;
-            transform: translateX(-25%) rotate(180deg);
-            opacity: 0.1;
-        }
+    // Custom Confirmation Dialog Component (NEW) - Replaces window.confirm()
+    const CustomConfirmDialog = ({ config, onCancel }) => {
+        if (!config || !config.message) return null;
         
-        /* Glass Effect for Premium look */
-        .glass-premium {
-            background: rgba(255, 255, 255, 0.7);
-            backdrop-filter: blur(5px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
+        const handleConfirm = () => {
+            config.onConfirm();
+            onCancel(); // Close the modal
+        };
 
+        return (
+            <div className="fixed inset-0 bg-black bg-opacity-75 z-[110] flex items-center justify-center p-4">
+                <div className="bg-white p-6 rounded-xl max-w-sm w-full text-center shadow-2xl border-t-4 border-amber-500">
+                    <h4 className="text-xl font-bold text-amber-600 mb-4">ยืนยันการดำเนินการ</h4>
+                    <p className="text-gray-700 mb-6">{config.message}</p>
+                    <div className="flex justify-center space-x-4">
+                        <button
+                            onClick={onCancel}
+                            className="bg-gray-400 text-white font-bold px-4 py-2 rounded-lg hover:bg-gray-500 transition duration-300 flex-1"
+                        >
+                            ยกเลิก
+                        </button>
+                        <button
+                            onClick={handleConfirm}
+                            className="bg-red-700 text-white font-bold px-4 py-2 rounded-lg hover:bg-red-800 transition duration-300 flex-1"
+                        >
+                            ยืนยัน
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
 
-        /* ------------------
-        4. Navbar
-        ------------------ */
-        .navbar {
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            width: 100%;
-            padding: 1rem 1.5rem;
-            background-color: var(--color-off-white);
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
+    // Package Card Component (Moved inside App for access to formatCurrency)
+    const PackageCard = ({ pkg, isSelected, onSelect }) => {
+        const isPremium = pkg.isRecommended;
+        const baseClasses = "card cursor-pointer p-6 rounded-xl transition duration-300 relative shadow-md h-full flex flex-col justify-between";
+        let cardClasses = `${baseClasses} border-4 ${isSelected ? 'border-red-700 shadow-xl bg-red-50' : (isPremium ? 'border-amber-500 bg-red-800 text-white transform scale-[1.02]' : 'border-gray-200 bg-white hover:border-red-400')}`;
+        let buttonClasses = `w-full mt-4 font-bold text-white transition duration-200 rounded-lg py-2 ${isSelected ? 'bg-red-700 hover:bg-red-800' : (isPremium ? 'bg-amber-400 text-gray-900 hover:bg-amber-500' : 'bg-red-700 hover:bg-red-800')}`;
+        const textStyle = isPremium && !isSelected ? { color: 'white' } : {};
 
-        .logo {
-            font-size: 1.5rem;
-            font-weight: 800;
-            color: var(--color-red);
-            letter-spacing: -0.5px;
-            text-shadow: 1px 1px 0 var(--color-gold);
-            text-decoration: none;
-        }
+        return (
+            <div className={cardClasses} onClick={() => onSelect(pkg.id)}>
+                {isPremium && (
+                    <div className="absolute top-0 right-0 bg-amber-500 text-red-800 text-xs font-black px-3 py-1 rounded-bl-lg rounded-tr-lg">
+                        แนะนำ!
+                    </div>
+                )}
+                <div style={textStyle}>
+                    <h3 className="text-2xl font-extrabold mb-1" style={textStyle}>{pkg.name}</h3>
+                    <div className="text-4xl font-black mt-4 mb-4" style={textStyle}>{formatCurrency(pkg.price)}<span className="text-xl font-normal ml-1">/โต๊ะ</span></div>
+                    <ul className="text-left space-y-2 mb-6">
+                        {pkg.features.map((feature, index) => (
+                            <li key={index} className="flex items-start text-sm">
+                                <span className={`mr-2 flex-shrink-0 ${feature.includes('(ไม่มี)') ? 'text-gray-400' : (isPremium && !isSelected ? 'text-amber-300' : 'text-red-600')}`}>
+                                    {feature.includes('(ไม่มี)') ? '✗' : '✓'}
+                                </span>
+                                {feature}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+                <button className={buttonClasses}>
+                    {isSelected ? '✓ แพ็กเกจที่เลือก' : 'เลือกแพ็กเกจนี้'}
+                </button>
+            </div>
+        );
+    };
 
-        .nav-links {
-            display: none; /* Mobile default */
-        }
-
-        .nav-links a {
-            color: var(--color-dark-ink);
-            text-decoration: none;
-            font-weight: 500;
-            margin-left: 1.5rem;
-            padding: 0.5rem 0;
-            position: relative;
-            transition: color 0.2s;
-        }
-
-        .nav-links a:hover, .nav-links a.active {
-            color: var(--color-red);
-        }
-
-        .nav-links a::after {
-            content: '';
-            position: absolute;
-            width: 0;
-            height: 2px;
-            display: block;
-            margin-top: 2px;
-            right: 0;
-            background: var(--color-gold);
-            transition: width 0.2s ease-in-out;
-        }
-
-        .nav-links a:hover::after, .nav-links a.active::after {
-            width: 100%;
-            left: 0;
-            background: var(--color-red);
-        }
-
-        .menu-toggle {
-            display: block;
-            font-size: 1.5rem;
-            cursor: pointer;
-            color: var(--color-red);
-        }
-
-        /* ------------------
-        5. Hero Section
-        ------------------ */
-        #hero {
-            text-align: center;
-            padding: 6rem 1rem;
-            background: linear-gradient(135deg, var(--color-red), var(--color-red-dark) 70%);
-            color: var(--color-off-white);
-            margin-top: -1px; /* Overlap navbar shadow */
-            position: relative;
-        }
-
-        #hero h1 {
-            font-size: 3rem;
-            font-weight: 900;
-            margin-bottom: 0.5rem;
-            text-shadow: 2px 2px 0 var(--color-dark-ink);
-            line-height: 1.1;
-        }
-
-        #hero p {
-            font-size: 1.4rem;
-            font-weight: 300;
-            margin-bottom: 2rem;
-            opacity: 0.9;
-        }
-
-        /* ------------------
-        6. Menu Section
-        ------------------ */
-        #menu {
-            background-color: #F8F4F0; /* Slightly different background for section contrast */
-        }
-
-        .menu-grid {
-            display: grid;
-            gap: 20px;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-        }
-
-        .menu-item {
-            display: flex;
-            align-items: center;
-            border-left: 4px solid var(--color-red);
-            padding: 1rem;
-            position: relative;
-        }
-
-        .menu-details {
-            flex-grow: 1;
-        }
-
-        .menu-details h4 {
-            font-size: 1.25rem;
-            margin-bottom: 0.25rem;
-            color: var(--color-dark-ink);
-        }
-
-        .menu-details p {
-            font-size: 1rem;
-            font-weight: 700;
-            color: var(--color-red);
-        }
-
-        .menu-badge {
-            position: absolute;
-            top: -10px;
-            right: 0;
-            background-color: var(--color-gold);
-            color: var(--color-dark-ink);
-            font-weight: 700;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            transform: rotate(3deg);
-            cursor: help;
-        }
-
-        /* ------------------
-        7. Pricing Section
-        ------------------ */
-        #pricing {
-            text-align: center;
-        }
-
-        .pricing-toggle {
-            margin-bottom: 2rem;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 1rem;
-            font-weight: 600;
-        }
-
-        .toggle-switch {
-            position: relative;
-            display: inline-block;
-            width: 70px;
-            height: 34px;
-        }
-
-        .toggle-switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-
-        .slider-round {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: var(--color-gold);
-            transition: 0.4s;
-            border-radius: 34px;
-        }
-
-        .slider-round:before {
-            position: absolute;
-            content: "";
-            height: 26px;
-            width: 26px;
-            left: 4px;
-            bottom: 4px;
-            background-color: white;
-            transition: 0.4s;
-            border-radius: 50%;
-        }
-
-        input:checked + .slider-round {
-            background-color: var(--color-red);
-        }
-
-        input:checked + .slider-round:before {
-            transform: translateX(35px);
-        }
-
-        .pricing-grid {
-            display: grid;
-            gap: 24px;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-        }
-
-        .price-card {
-            padding: 2rem;
-            text-align: center;
-            border: 3px solid var(--color-gold);
-        }
+    // Addon Card Component
+    const AddonCard = ({ addon, isSelected, onToggle }) => {
+        const cardClasses = `p-4 rounded-lg border-2 transition duration-200 flex flex-col justify-between cursor-pointer ${
+            isSelected ? 'border-red-700 bg-red-50 shadow-md' : 'border-gray-200 bg-white hover:border-red-400'
+        }`;
         
-        .price-card.featured {
-            transform: scale(1.05);
-            border-color: var(--color-red);
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.15);
-        }
-        
-        .price-card h3 {
-            color: var(--color-red);
-            font-size: 1.8rem;
-            margin-bottom: 0.5rem;
-        }
-
-        .price-card .price {
-            font-size: 2.5rem;
-            font-weight: 800;
-            color: var(--color-gold);
-            margin-bottom: 1rem;
-            display: block;
-        }
-
-        .price-card ul {
-            list-style: none;
-            text-align: left;
-            margin-bottom: 1.5rem;
-            padding-left: 0;
-        }
-
-        .price-card ul li {
-            padding: 0.5rem 0;
-            border-bottom: 1px dashed var(--color-border);
-            color: var(--color-dark-ink);
-        }
-        
-        .price-card .note {
-            font-size: 0.9rem;
-            color: var(--color-text-secondary);
-            margin-top: 1rem;
-            opacity: 0.8;
-        }
-
-        /* ------------------
-        8. Review Section
-        ------------------ */
-        #reviews {
-            background-color: #F8F4F0;
-        }
-        .reviews-grid {
-            display: grid;
-            gap: 20px;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-        }
-
-        .review-card {
-            padding: 1.5rem;
-            border-top: 4px solid var(--color-gold);
-            font-style: italic;
-        }
-
-        .review-card .rating {
-            color: var(--color-gold);
-            font-size: 1.2rem;
-            margin-bottom: 0.5rem;
-        }
-
-        .review-card .author {
-            font-style: normal;
-            font-weight: 600;
-            margin-top: 1rem;
-            display: block;
-        }
-
-        /* ------------------
-        9. Gallery Section & Lightbox
-        ------------------ */
-        .gallery-grid {
-            display: grid;
-            gap: 10px;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-        }
-
-        .gallery-item {
-            aspect-ratio: 1/1;
-            overflow: hidden;
-            border-radius: var(--radius-md);
-            cursor: pointer;
-            border: 3px solid var(--color-off-white);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-            transition: transform 0.2s, opacity 0.2s;
-        }
-
-        .gallery-item:hover {
-            transform: scale(1.03);
-            opacity: 0.9;
-        }
-
-        .gallery-item img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-
-        /* Lightbox Overlay */
-        .lightbox-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(15, 23, 42, 0.95); /* Dark Ink overlay */
-            z-index: 200;
-            display: none;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .lightbox-content {
-            position: relative;
-            max-width: 90%;
-            max-height: 90%;
-        }
-
-        .lightbox-content img {
-            display: block;
-            max-width: 100%;
-            max-height: 100vh;
-            border: 4px solid var(--color-gold);
-            border-radius: var(--radius-lg);
-        }
-
-        .lightbox-close {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            background: var(--color-red);
-            color: white;
-            border: none;
-            padding: 8px 12px;
-            border-radius: 50%;
-            font-size: 1.5rem;
-            line-height: 1;
-            cursor: pointer;
-            z-index: 210;
-        }
-
-        /* ------------------
-        10. Booking/Form Section
-        ------------------ */
-        #contact {
-            background-color: #F8F4F0;
-        }
-        .form-container {
-            max-width: 600px;
-            margin: 0 auto;
-            border: 1px solid var(--color-red);
-        }
-
-        .form-grid {
-            display: grid;
-            gap: 15px;
-            grid-template-columns: 1fr;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: 600;
-        }
-
-        .form-group input, .form-group select, .form-group textarea {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid var(--color-border);
-            border-radius: 6px;
-            font-family: var(--font-stack);
-            font-size: 1rem;
-            background-color: white;
-            transition: border-color 0.2s, box-shadow 0.2s;
-        }
-
-        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
-            outline: none;
-            border-color: var(--color-red);
-            box-shadow: 0 0 0 2px rgba(185, 28, 28, 0.2);
-        }
-
-        /* Responsive form grid */
-        @media (min-width: 768px) {
-            .form-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-            .full-width {
-                grid-column: span 2;
-            }
-        }
-        
-        /* Form Validation Error */
-        .error-message {
-            color: var(--color-red);
-            font-size: 0.9rem;
-            margin-top: 4px;
-            display: block;
-            min-height: 18px;
-        }
-        .input-error {
-            border-color: var(--color-red) !important;
-            box-shadow: 0 0 0 2px rgba(185, 28, 28, 0.2) !important;
-        }
-
-        .booking-success {
-            padding: 30px;
-            text-align: center;
-            background-color: #D1FAE5;
-            color: #065F46;
-            border: 1px solid #10B981;
-            border-radius: var(--radius-lg);
-            display: none;
-        }
-
-        /* ------------------
-        11. Service Area/Map
-        ------------------ */
-        .area-container {
-            display: flex;
-            flex-direction: column;
-            gap: 2rem;
-            align-items: flex-start;
-        }
-        
-        .map-placeholder {
-            width: 100%;
-            aspect-ratio: 16/9;
-            background-color: var(--color-border);
-            border-radius: var(--radius-md);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--color-dark-ink);
-            font-weight: 600;
-            border: 1px solid var(--color-red);
-            text-align: center;
-        }
-
-        .shipping-table {
-            width: 100%;
-            border-collapse: collapse;
-            text-align: left;
-            font-size: 0.95rem;
-            margin-top: 1rem;
-        }
-        .shipping-table th, .shipping-table td {
-            padding: 10px 15px;
-            border: 1px solid var(--color-border);
-        }
-        .shipping-table th {
-            background-color: var(--color-red);
-            color: white;
-            font-weight: 700;
-        }
-        .shipping-table tr:nth-child(even) {
-            background-color: #FAFAFA;
-        }
-
-        @media (min-width: 768px) {
-            .area-container {
-                flex-direction: row;
-            }
-            .area-container > div {
-                flex: 1;
-            }
-        }
-
-        /* ------------------
-        12. Footer
-        ------------------ */
-        .footer {
-            background-color: var(--color-dark-ink);
-            color: var(--color-off-white);
-            padding: 3rem 1rem;
-            font-size: 0.9rem;
-            text-align: center;
-        }
-
-        .footer-grid {
-            max-width: 1280px;
-            margin: 0 auto 1.5rem;
-            display: grid;
-            gap: 30px;
-            text-align: center;
-        }
-
-        .footer h4 {
-            font-size: 1.1rem;
-            color: var(--color-gold);
-            margin-bottom: 0.75rem;
-        }
-
-        .footer-contact a {
-            display: block;
-            margin-bottom: 0.5rem;
-            color: var(--color-off-white);
-            text-decoration: none;
-            transition: color 0.2s;
-        }
-
-        .footer-contact a:hover {
-            color: var(--color-red);
-        }
-        
-        @media (min-width: 768px) {
-            .navbar {
-                padding: 1rem 2rem;
-            }
-            .nav-links {
-                display: flex;
-            }
-            .menu-toggle {
-                display: none;
-            }
-            .footer-grid {
-                grid-template-columns: repeat(3, 1fr);
-                text-align: left;
-            }
-            #hero h1 {
-                font-size: 4.5rem;
-            }
-            .section-divider {
-                height: 60px;
-            }
-            
-            /* Responsive form grid fix for full-width elements */
-            .form-grid > .form-group:last-of-type {
-                grid-column: 1 / 3; /* Ensure last element takes full width if needed */
-            }
-        }
-
-    </style>
-</head>
-<body>
-
-    <!-- Lightbox Overlay -->
-    <div id="lightbox" class="lightbox-overlay">
-        <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
-        <div class="lightbox-content">
-            <img id="lightbox-image" src="" alt="รูปภาพโต๊ะจีนขนาดใหญ่">
-        </div>
-    </div>
-
-    <!-- 1. Navbar -->
-    <nav class="navbar glass-premium">
-        <a href="#hero" class="logo">โต๊ะจีนเจริญมงคล</a>
-        
-        <!-- Toggle button for mobile (using emoji/text for simplicity) -->
-        <div class="menu-toggle" id="menu-toggle-btn">
-            &#9776; <!-- Hamburger icon -->
-        </div>
-
-        <div class="nav-links" id="nav-links">
-            <a href="#menu" data-nav="menu">เมนูอาหาร</a>
-            <a href="#pricing" data-nav="pricing">แพ็กเกจราคา</a>
-            <a href="#reviews" data-nav="reviews">รีวิวลูกค้า</a>
-            <a href="#gallery" data-nav="gallery">แกลเลอรี</a>
-            <a href="#contact" data-nav="contact">ติดต่อ</a>
-        </div>
-    </nav>
-
-    <!-- 2. Hero/Callout Section -->
-    <section id="hero">
-        <h1>โต๊ะจีนเจริญมงคล</h1>
-        <p>อร่อย คุ้มค่า จัดเต็มวัตถุดิบ พิถีพิถันทุกจาน<br>สืบสานตำนานความอร่อยมานานกว่า 30 ปี</p>
-        <a href="#contact" class="btn btn-primary">จองโต๊ะ / ขอใบเสนอราคา &nbsp; <span class="icon">&#127869;</span></a>
-    </section>
-
-    <!-- Divider -->
-    <div class="section-divider"><div class="section-divider-wave"></div></div>
-
-    <!-- 3. Menu Items -->
-    <section id="menu">
-        <h2>เมนูอาหารเด่น</h2>
-        <p class="subtitle">คัดสรรวัตถุดิบคุณภาพ นำเสนอเมนูซิกเนเจอร์ที่ได้รับความนิยมสูงสุด</p>
-
-        <div class="menu-grid">
-            
-            <!-- Item 1: หูฉลามน้ำแดง -->
-            <div class="card menu-item">
-                <span class="corner-ornament tl"></span>
-                <span class="corner-ornament br"></span>
-                <div class="icon">&#127857;</div>
-                <div class="menu-details">
-                    <h4>หูฉลามน้ำแดง</h4>
-                    <p>1,200 บาท</p>
+        return (
+            <div className={cardClasses} onClick={() => onToggle(addon.id)}>
+                <div className="flex justify-between items-start mb-2">
+                    <h4 className="text-lg font-bold text-gray-800">{addon.name}</h4>
+                    <span className="text-xl font-extrabold text-red-700 ml-4 flex-shrink-0">
+                        {formatCurrency(addon.price)}
+                    </span>
                 </div>
-                <div class="menu-badge" title="เมนูแนะนำที่ลูกค้าสั่งมากที่สุด">ขายดี</div>
-            </div>
-
-            <!-- Item 2: เป็ดปักกิ่ง -->
-            <div class="card menu-item">
-                <span class="corner-ornament tl"></span>
-                <span class="corner-ornament br"></span>
-                <div class="icon">&#129427;</div>
-                <div class="menu-details">
-                    <h4>เป็ดปักกิ่ง</h4>
-                    <p>1,800 บาท</p>
-                </div>
-                <div class="menu-badge" title="เมนูที่เราภูมิใจนำเสนอ">ซิกเนเจอร์</div>
-            </div>
-
-            <!-- Item 3: กุ้งอบวุ้นเส้น -->
-            <div class="card menu-item">
-                <span class="corner-ornament tl"></span>
-                <span class="corner-ornament br"></span>
-                <div class="icon">&#129426;</div>
-                <div class="menu-details">
-                    <h4>กุ้งอบวุ้นเส้น</h4>
-                    <p>950 บาท</p>
+                <p className="text-sm text-gray-500 mb-2">{addon.description}</p>
+                <div className="flex justify-end mt-2">
+                    <div className={`px-3 py-1 text-xs font-semibold rounded-full ${isSelected ? 'bg-red-700 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                        {isSelected ? '✓ เพิ่มแล้ว' : '+ เลือกเพิ่ม'}
+                    </div>
                 </div>
             </div>
-
-            <!-- Item 4: ปลาทอดราดพริกสามรส -->
-            <div class="card menu-item">
-                <span class="corner-ornament tl"></span>
-                <span class="corner-ornament br"></span>
-                <div class="icon">&#128031;</div>
-                <div class="menu-details">
-                    <h4>ปลาทอดราดพริกสามรส</h4>
-                    <p>850 บาท</p>
-                </div>
-            </div>
-
-            <!-- Item 5: ไก่แช่เหล้า -->
-            <div class="card menu-item">
-                <span class="corner-ornament tl"></span>
-                <span class="corner-ornament br"></span>
-                <div class="icon">&#127838;</div>
-                <div class="menu-details">
-                    <h4>ไก่แช่เหล้า</h4>
-                    <p>720 บาท</p>
-                </div>
-            </div>
-
-            <!-- Item 6: ขาหมูเยอรมัน -->
-            <div class="card menu-item">
-                <span class="corner-ornament tl"></span>
-                <span class="corner-ornament br"></span>
-                <div class="icon">&#127830;</div>
-                <div class="menu-details">
-                    <h4>ขาหมูเยอรมัน</h4>
-                    <p>990 บาท</p>
-                </div>
-            </div>
-
-            <!-- Item 7: เห็ดหอมตุ๋นยาจีน -->
-            <div class="card menu-item">
-                <span class="corner-ornament tl"></span>
-                <span class="corner-ornament br"></span>
-                <div class="icon">&#127870;</div>
-                <div class="menu-details">
-                    <h4>เห็ดหอมตุ๋นยาจีน</h4>
-                    <p>650 บาท</p>
-                </div>
-            </div>
-
-            <!-- Item 8: ผลไม้รวม -->
-            <div class="card menu-item">
-                <span class="corner-ornament tl"></span>
-                <span class="corner-ornament br"></span>
-                <div class="icon">&#127827;</div>
-                <div class="menu-details">
-                    <h4>ผลไม้รวม</h4>
-                    <p>450 บาท</p>
-                </div>
-            </div>
-            
+        );
+    };
+    
+    // Summary Line Component
+    const SummaryLine = ({ label, value, isTotal = false }) => (
+        <div className={`flex justify-between items-center py-3 ${isTotal ? 'border-t-2 border-amber-400 pt-4 mt-4' : 'border-b border-white/20'}`}>
+            <span className={`text-xl ${isTotal ? 'text-amber-400 font-bold' : 'text-white font-normal'}`}>{label}</span>
+            <span className={`text-2xl ${isTotal ? 'text-amber-400 font-black sm:text-4xl' : 'text-amber-200 font-semibold'}`}>
+                {value}
+            </span>
         </div>
-    </section>
+    );
+    
+    // Payment Simulation/Success Modal
+    const PaymentModal = () => {
+        // Calculations were moved into TohChinOrderApp's useMemo, so we need to recalculate them here or pass them.
+        // For simplicity, we define the calculation logic locally again, as this is a separate, ephemeral component.
+        const selectedPackage = packagesData.find(pkg => pkg.id === selectedPackageId);
+        const packagePrice = selectedPackage ? selectedPackage.price : 0;
+        const totalAddons = selectedAddons.reduce((sum, addonId) => {
+            const addon = addonsData.find(a => a.id === addonId);
+            return sum + (addon ? addon.price : 0);
+        }, 0);
+        const grandTotalPerTable = packagePrice + totalAddons;
+        const finalEventTotal = grandTotalPerTable * tableQuantity;
 
-    <!-- Divider -->
-    <div class="section-divider"><div class="section-divider-wave"></div></div>
+        if (!isPaymentModalOpen) return null;
 
-    <!-- 4. Pricing Packages -->
-    <section id="pricing">
-        <h2>แพ็กเกจราคา</h2>
-        <p class="subtitle">เลือกชุดเมนูที่เหมาะกับงานของคุณ วัตถุดิบคุณภาพทุกระดับ</p>
-
-        <!-- Currency Toggle -->
-        <div class="pricing-toggle">
-            <span id="currency-thb" style="color: var(--color-red);">฿ THB</span>
-            <label class="toggle-switch">
-                <input type="checkbox" id="currency-toggle">
-                <span class="slider-round"></span>
-            </label>
-            <span id="currency-usd">$ USD</span>
-        </div>
-
-        <div class="pricing-grid">
-            
-            <!-- Package 1: มงคลเริ่มต้น -->
-            <div class="card price-card">
-                <h3>ชุดมงคลเริ่มต้น</h3>
-                <span class="price" data-thb="3,990" data-usd="114">฿ 3,990</span>
-                <ul>
-                    <li>✅ 8 เมนูอาหารมาตรฐาน</li>
-                    <li>✅ วัตถุดิบคุณภาพ, คุ้มค่าที่สุด</li>
-                    <li>✅ สำหรับงานขนาดเล็ก-กลาง</li>
-                    <li>✅ บริการจัดโต๊ะและภาชนะ</li>
-                    <li>❌ ซีฟู้ดพรีเมียม</li>
-                    <li>❌ น้ำอัดลมไม่อั้น</li>
-                </ul>
-                <a href="#contact" class="btn btn-secondary">เลือกชุดนี้</a>
-                <p class="note">เริ่มต้นที่ 3,990 บาท/โต๊ะ</p>
-            </div>
-
-            <!-- Package 2: มั่งคั่ง (Featured) -->
-            <div class="card price-card featured">
-                <span class="corner-ornament tl"></span>
-                <span class="corner-ornament tr"></span>
-                <span class="corner-ornament bl"></span>
-                <span class="corner-ornament br"></span>
-                <h3>ชุดมั่งคั่ง</h3>
-                <span class="price" data-thb="5,990" data-usd="171">฿ 5,990</span>
-                <ul>
-                    <li>✅ 9 เมนู (อัปเกรดวัตถุดิบ)</li>
-                    <li>✅ ซีฟู้ดพรีเมียม 1 รายการ</li>
-                    <li>✅ เป็ดปักกิ่ง หรือ ขาหมูเยอรมัน</li>
-                    <li>✅ สำหรับงานเลี้ยงทุกประเภท</li>
-                    <li>✅ ออกแบบการจัดเลี้ยงให้</li>
-                    <li>❌ น้ำอัดลมไม่อั้น</li>
-                </ul>
-                <a href="#contact" class="btn btn-primary">จองชุดยอดนิยม</a>
-                <p class="note">แนะนำสำหรับงานมงคลสมรสและงานบวช</p>
-            </div>
-
-            <!-- Package 3: มหามงคล -->
-            <div class="card price-card">
-                <h3>ชุดมหามงคล</h3>
-                <span class="price" data-thb="7,990" data-usd="228">฿ 7,990</span>
-                <ul>
-                    <li>✅ 10 เมนูซิกเนเจอร์</li>
-                    <li>✅ ซีฟู้ดพรีเมียม 2 รายการ</li>
-                    <li>✅ ของหวานพิเศษ/ไอศกรีม</li>
-                    <li>✅ น้ำอัดลมและน้ำเปล่าไม่อั้น</li>
-                    <li>✅ ทีมบริการระดับ VIP</li>
-                    <li>✅ ส่วนลดพิเศษสำหรับลูกค้าเก่า</li>
-                </ul>
-                <a href="#contact" class="btn btn-secondary">เลือกชุดนี้</a>
-                <p class="note">ชุดที่ดีที่สุดสำหรับงานเลี้ยงสุดพิเศษ</p>
-            </div>
-
-        </div>
-
-        <div style="margin-top: 3rem; font-size: 1.1rem; color: var(--color-red); font-weight: 600;">
-            <p>หมายเหตุสำคัญ:</p>
-            <p style="margin-top: 0.5rem; font-weight: 400; color: var(--color-dark-ink);">* ขั้นต่ำ 10 โต๊ะขึ้นไปสำหรับการจัดเลี้ยงนอกสถานที่</p>
-            <p style="font-weight: 400; color: var(--color-dark-ink);">* รับส่วนลดพิเศษสำหรับงานแต่ง งานบวช และงานขึ้นบ้านใหม่</p>
-            <p style="font-weight: 400; color: var(--color-dark-ink);">* สามารถออกใบกำกับภาษีได้</p>
-        </div>
-    </section>
-
-    <!-- Divider -->
-    <div class="section-divider"><div class="section-divider-wave"></div></div>
-
-    <!-- 5. Review Section -->
-    <section id="reviews">
-        <h2>รีวิวจากลูกค้า</h2>
-        <p class="subtitle">ความไว้วางใจจากผู้ใช้บริการ คือความภาคภูมิใจของเรา</p>
-        <div class="reviews-grid">
-            
-            <div class="card review-card">
-                <div class="rating">★★★★★</div>
-                <p>"อาหารอร่อยมาก ทุกคนชมว่ารสชาติดี จัดจ้านถูกปาก โดยเฉพาะเป็ดปักกิ่ง หนังกรอบจริง ๆ ค่ะ"</p>
-                <span class="author">— คุณ A. (งานมงคลสมรส)</span>
-            </div>
-
-            <div class="card review-card">
-                <div class="rating">★★★★★</div>
-                <p>"ทีมงานบริการดีเยี่ยม จัดโต๊ะได้สวยงามและรวดเร็ว วัตถุดิบสดใหม่ คุ้มค่าเกินราคาที่จ่ายไปมาก ๆ ครับ"</p>
-                <span class="author">— คุณ B. (งานเลี้ยงบริษัท)</span>
-            </div>
-
-            <div class="card review-card">
-                <div class="rating">★★★★☆</div>
-                <p>"ถูกใจชุดมหามงคลมากครับ ของหวานอร่อยเป็นพิเศษ มีน้ำอัดลมให้ไม่อั้นด้วย ขอติตรงการเดินทางนิดหน่อยครับ"</p>
-                <span class="author">— คุณ C. (งานบวช)</span>
-            </div>
-            
-            <div class="card review-card">
-                <div class="rating">★★★★★</div>
-                <p>"สั่งโต๊ะจีนเจริญมงคลมา 3 งานแล้ว ไม่เคยผิดหวัง รสชาติคงที่มาตรฐานยอดเยี่ยม ทุกคนอิ่มอร่อยกลับบ้านครับ"</p>
-                <span class="author">— คุณ D. (งานขึ้นบ้านใหม่)</span>
-            </div>
-
-        </div>
-    </section>
-
-    <!-- Divider -->
-    <div class="section-divider"><div class="section-divider-wave"></div></div>
-
-    <!-- 6. Gallery Section -->
-    <section id="gallery">
-        <h2>แกลเลอรี</h2>
-        <p class="subtitle">ภาพความประทับใจจากงานจัดเลี้ยงที่ผ่านมา</p>
-        <div class="gallery-grid">
-            <!-- Placeholders (using data URI for simplicity and single-file constraint) -->
-            <div class="gallery-item" onclick="openLightbox('https://placehold.co/600x600/B91C1C/FFF7ED?text=โต๊ะจีน+Set')">
-                <img src="https://placehold.co/300x300/B91C1C/FFF7ED?text=โต๊ะจีน+Set" alt="ภาพรวมการจัดโต๊ะจีนในงานเลี้ยง">
-            </div>
-            <div class="gallery-item" onclick="openLightbox('https://placehold.co/600x600/F59E0B/0F172A?text=เป็ดปักกิ่ง')">
-                <img src="https://placehold.co/300x300/F59E0B/0F172A?text=เป็ดปักกิ่ง" alt="เมนูเป็ดปักกิ่งหนังกรอบ">
-            </div>
-            <div class="gallery-item" onclick="openLightbox('https://placehold.co/600x600/0F172A/FFF7ED?text=กุ้งอบวุ้นเส้น')">
-                <img src="https://placehold.co/300x300/0F172A/FFF7ED?text=กุ้งอบวุ้นเส้น" alt="เมนูกุ้งอบวุ้นเส้นพร้อมกุ้งตัวโต">
-            </div>
-            <div class="gallery-item" onclick="openLightbox('https://placehold.co/600x600/FFF7ED/B91C1C?text=จัดเลี้ยงสวยงาม')">
-                <img src="https://placehold.co/300x300/FFF7ED/B91C1C?text=จัดเลี้ยงสวยงาม" alt="บรรยากาศการจัดเลี้ยงที่ตกแต่งอย่างสวยงาม">
-            </div>
-            <div class="gallery-item" onclick="openLightbox('https://placehold.co/600x600/B91C1C/FFF7ED?text=ปลาทอด')">
-                <img src="https://placehold.co/300x300/B91C1C/FFF7ED?text=ปลาทอด" alt="เมนูปลาทอดสามรส">
-            </div>
-            <div class="gallery-item" onclick="openLightbox('https://placehold.co/600x600/F59E0B/0F172A?text=ทีมงาน')">
-                <img src="https://placehold.co/300x300/F59E0B/0F172A?text=ทีมงาน" alt="ภาพทีมงานขณะเตรียมการ">
-            </div>
-        </div>
-    </section>
-
-    <!-- Divider -->
-    <div class="section-divider"><div class="section-divider-wave"></div></div>
-
-    <!-- 7. Service Area & Shipping Costs -->
-    <section id="area">
-        <h2>เขตให้บริการและค่าขนส่ง</h2>
-        <p class="subtitle">บริการจัดส่งทั่วประเทศ พร้อมค่าบริการที่โปร่งใส</p>
-
-        <div class="area-container">
-            <div>
-                <h3>พื้นที่จัดส่งหลัก</h3>
-                <div class="map-placeholder">
-                    <p>แผนที่เขตพื้นที่บริการหลัก (กทม. และปริมณฑล)</p>
-                </div>
-            </div>
-            
-            <div>
-                <h3>ตารางค่าขนส่งโดยประมาณ</h3>
-                <table class="shipping-table">
-                    <thead>
-                        <tr>
-                            <th>พื้นที่</th>
-                            <th>ค่าขนส่ง (เริ่มต้น)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>กรุงเทพฯ (ในเขต)</td>
-                            <td>ฟรี! (สำหรับ 20 โต๊ะขึ้นไป)</td>
-                        </tr>
-                        <tr>
-                            <td>กรุงเทพฯ (นอกเขต) / ปริมณฑล</td>
-                            <td>1,500 บาท</td>
-                        </tr>
-                        <tr>
-                            <td>ต่างจังหวัด (ภาคกลาง / ตะวันออก)</td>
-                            <td>2,500 บาท</td>
-                        </tr>
-                        <tr>
-                            <td>ต่างจังหวัด (อื่น ๆ)</td>
-                            <td>กรุณาสอบถาม</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </section>
-
-    <!-- 8. Booking Form -->
-    <section id="contact">
-        <h2>ติดต่อ & ขอใบเสนอราคา</h2>
-        <p class="subtitle">กรอกรายละเอียดงานเพื่อรับการติดต่อกลับและใบเสนอราคาที่เหมาะสม</p>
-
-        <div class="card form-container">
-            <div id="booking-form-section">
-                <form id="booking-form">
-                    <div class="form-grid">
-                        
-                        <!-- 1. ชื่อ-นามสกุล -->
-                        <div class="form-group">
-                            <label for="name">ชื่อ-นามสกุล *</label>
-                            <input type="text" id="name" name="name" placeholder="ชื่อผู้ติดต่อ" required aria-describedby="name-error">
-                            <span id="name-error" class="error-message"></span>
-                        </div>
-
-                        <!-- 2. เบอร์โทร -->
-                        <div class="form-group">
-                            <label for="phone-form">เบอร์โทรศัพท์ *</label>
-                            <input type="tel" id="phone-form" name="phone-form" placeholder="เช่น 08x-xxx-xxxx" required pattern="[0-9]{9,10}" aria-describedby="phone-error">
-                            <span id="phone-error" class="error-message"></span>
-                        </div>
-                        
-                        <!-- 3. ไลน์/อีเมล -->
-                        <div class="form-group">
-                            <label for="line-email">ไลน์ ID / อีเมล *</label>
-                            <input type="text" id="line-email" name="line-email" placeholder="ไลน์ไอดี หรือ อีเมล" required aria-describedby="email-error">
-                            <span id="email-error" class="error-message"></span>
-                        </div>
-
-                        <!-- 4. วันที่จัดงาน -->
-                        <div class="form-group">
-                            <label for="date">วันที่จัดงาน *</label>
-                            <input type="date" id="date" name="date" required aria-describedby="date-error">
-                            <span id="date-error" class="error-message"></span>
-                        </div>
-
-                        <!-- 5. สถานที่/อำเภอ -->
-                        <div class="form-group full-width">
-                            <label for="location">สถานที่จัดงาน / อำเภอ *</label>
-                            <input type="text" id="location" name="location" placeholder="เช่น บ้านเลขที่ 100, อ.เมือง จ.เชียงใหม่" required aria-describedby="location-error">
-                            <span id="location-error" class="error-message"></span>
-                        </div>
-
-                        <!-- 6. จำนวนโต๊ะ -->
-                        <div class="form-group">
-                            <label for="table-count">จำนวนโต๊ะ (ขั้นต่ำ 10) *</label>
-                            <input type="number" id="table-count" name="table-count" min="10" value="10" required aria-describedby="count-error">
-                            <span id="count-error" class="error-message"></span>
-                        </div>
-
-                        <!-- 7. แพ็กเกจที่เลือก -->
-                        <div class="form-group">
-                            <label for="package">แพ็กเกจที่สนใจ</label>
-                            <select id="package" name="package">
-                                <option value="มงคลเริ่มต้น">ชุดมงคลเริ่มต้น (3,990 บาท)</option>
-                                <option value="มั่งคั่ง" selected>ชุดมั่งคั่ง (5,990 บาท) - แนะนำ</option>
-                                <option value="มหามงคล">ชุดมหามงคล (7,990 บาท)</option>
-                                <option value="ไม่ระบุ">ยังไม่แน่ใจ / ขอคำแนะนำ</option>
-                            </select>
-                        </div>
-                        
-                        <!-- 8. หมายเหตุพิเศษ -->
-                        <div class="form-group full-width">
-                            <label for="notes">หมายเหตุพิเศษ</label>
-                            <textarea id="notes" name="notes" rows="3" placeholder="เช่น ประเภทงาน (แต่ง/บวช), ข้อจำกัดด้านอาหาร, วัน/เวลาที่สะดวกให้ติดต่อกลับ"></textarea>
-                        </div>
-
+        return (
+            <div className="fixed inset-0 bg-black bg-opacity-75 z-[100] flex items-center justify-center p-4">
+                <div className="bg-white p-8 rounded-2xl max-w-lg w-full text-center shadow-2xl">
+                    <div className="text-6xl text-green-600 mb-4">
+                        <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    </div>
+                    <h3 className="text-3xl font-black text-red-700 mb-4">
+                        ยืนยันคำสั่งซื้อสำเร็จ!
+                    </h3>
+                    <p className="text-lg text-gray-700 mb-6">
+                        คำสั่งซื้อโต๊ะจีนของคุณ ({tableQuantity} โต๊ะ) ได้ถูกบันทึกในระบบเรียบร้อยแล้ว
+                    </p>
+                    
+                    <div className="bg-red-50 p-4 rounded-lg mb-6 border-2 border-red-200">
+                        <p className="text-sm font-semibold text-gray-600">ราคารวมสุดท้าย</p>
+                        <p className="text-4xl font-extrabold text-red-700">{formatCurrency(finalEventTotal)}</p>
                     </div>
                     
-                    <div class="full-width" style="margin-top: 20px;">
-                        <button type="submit" class="btn btn-primary" style="width: 100%;">ส่งคำขอใบเสนอราคา &nbsp; <span class="icon">&#128230;</span></button>
-                    </div>
-                </form>
+                    <p className="text-sm text-gray-500 mb-6">
+                        ** ขั้นตอนต่อไป: ** ทีมงานจะติดต่อกลับเพื่อยืนยันวันจัดงานและดำเนินการชำระเงินมัดจำ
+                    </p>
+                    
+                    <button
+                        onClick={() => {
+                            setIsPaymentModalOpen(false);
+                            setSelectedPackageId(null);
+                            setSelectedAddons([]);
+                            setTableQuantity(1);
+                        }}
+                        className="bg-red-700 text-white font-bold px-6 py-3 rounded-xl hover:bg-red-800 transition duration-300"
+                    >
+                        ปิดและสร้างคำสั่งซื้อใหม่
+                    </button>
+                </div>
             </div>
+        );
+    }
+    
+    // ----------------------------------------------------
+    // 4. Order App View (The original main content)
+    // ----------------------------------------------------
+    
+    const TohChinOrderApp = () => {
+        // Get the currently selected package object
+        const selectedPackage = useMemo(() =>
+            packagesData.find(pkg => pkg.id === selectedPackageId),
+            [selectedPackageId]
+        );
+
+        // Calculate totals whenever selections and quantity change
+        const { packagePrice, addonsTotal, grandTotalPerTable, finalEventTotal } = useMemo(() => {
+            const pkgPrice = selectedPackage ? selectedPackage.price : 0;
             
-            <div id="booking-success" class="booking-success">
-                <p style="font-size: 2rem;">&#10003;</p>
-                <h3 style="color: #065F46; margin-top: 10px;">ส่งคำขอเรียบร้อยแล้ว!</h3>
-                <p>ทีมงาน "โต๊ะจีนเจริญมงคล" จะติดต่อกลับภายใน 24 ชั่วโมง เพื่อยืนยันรายละเอียดครับ/ค่ะ</p>
-            </div>
-        </div>
-    </section>
+            const totalAddons = selectedAddons.reduce((sum, addonId) => {
+                const addon = addonsData.find(a => a.id === addonId);
+                return sum + (addon ? addon.price : 0);
+            }, 0);
 
-    <!-- 9. Footer -->
-    <footer class="footer">
-        <div class="footer-grid">
-            <div class="footer-contact">
-                <h4>ติดต่อเรา</h4>
-                <a href="tel:089xxxxxxx"><span class="icon">&#128222;</span> โทร: 08x-xxx-xxxx</a>
-                <a href="https://line.me/R/ti/p/@charoenmongkol" target="_blank"><span class="icon">&#128227;</span> LINE ID: @charoenmongkol</a>
-                <a href="https://facebook.com/charoenmongkol" target="_blank"><span class="icon">&#128190;</span> Facebook: โต๊ะจีนเจริญมงคล</a>
-            </div>
+            const gtpTable = pkgPrice + totalAddons;
             
-            <div>
-                <h4>เวลาทำการ</h4>
-                <p>เปิดทำการ: 09:00–19:00 น. ทุกวัน</p>
-                <p style="margin-top: 10px;">** รับงานแต่ง งานบวช งานขึ้นบ้านใหม่ งานเลี้ยงบริษัท **</p>
-            </div>
-            
-            <div>
-                <h4>ข้อมูลองค์กร</h4>
-                <p>ทะเบียนพาณิชย์: 1234567890</p>
-                <p>เลขผู้เสียภาษี: 01055xxxxxxxx</p>
-                <p style="margin-top: 10px;">รับประกันความอร่อยและคุณภาพวัตถุดิบทุกจาน</p>
-            </div>
-        </div>
-        <p style="margin-top: 2rem; opacity: 0.7;">&copy; 2024 โต๊ะจีนเจริญมงคล. All rights reserved.</p>
-    </footer>
+            return {
+                packagePrice: pkgPrice,
+                addonsTotal: totalAddons,
+                grandTotalPerTable: gtpTable, // Total price for one table
+                finalEventTotal: gtpTable * tableQuantity, // Total price for the entire event
+            };
+        }, [selectedPackage, selectedAddons, tableQuantity]);
 
-    <script>
-        /* ------------------
-        JavaScript for Interactivity
-        ------------------ */
+        // Handlers
+        const handlePackageSelect = (pkgId) => {
+            setSelectedPackageId(pkgId);
+            // Smooth scroll to the quantity section after package selection
+            document.getElementById('quantity')?.scrollIntoView({ behavior: 'smooth' });
+        };
 
-        const form = document.getElementById('booking-form');
-        const priceElements = document.querySelectorAll('.price');
-        const currencyToggle = document.getElementById('currency-toggle');
-        const currencyThb = document.getElementById('currency-thb');
-        const currencyUsd = document.getElementById('currency-usd');
-        const lightbox = document.getElementById('lightbox');
-        const lightboxImage = document.getElementById('lightbox-image');
-
-        const USD_RATE = 35.0; // สมมติเรต 35 บาทต่อ 1 USD
-
-        // ===================================
-        // A. Currency Toggle Functionality
-        // ===================================
-
-        /**
-         * Toggles the displayed currency between THB and USD.
-         */
-        function toggleCurrency() {
-            const isUSD = currencyToggle.checked;
-
-            priceElements.forEach(el => {
-                const thbPrice = el.getAttribute('data-thb');
-                const usdPrice = el.getAttribute('data-usd');
-
-                if (isUSD) {
-                    el.textContent = `$ ${usdPrice}`;
+        const handleAddonToggle = (addonId) => {
+            setSelectedAddons(prevSelected => {
+                if (prevSelected.includes(addonId)) {
+                    // Remove addon
+                    return prevSelected.filter(id => id !== addonId);
                 } else {
-                    el.textContent = `฿ ${thbPrice}`;
+                    // Add addon
+                    return [...prevSelected, addonId];
                 }
             });
+            // Scroll to the quantity section after adding an addon
+            document.getElementById('quantity')?.scrollIntoView({ behavior: 'smooth' });
+        };
 
-            // Highlight the active currency
-            currencyThb.style.color = isUSD ? 'var(--color-dark-ink)' : 'var(--color-red)';
-            currencyUsd.style.color = isUSD ? 'var(--color-red)' : 'var(--color-dark-ink)';
-        }
-
-        currencyToggle.addEventListener('change', toggleCurrency);
-        // Initial call to set default currency state
-        window.addEventListener('load', toggleCurrency); 
-
-        // ===================================
-        // B. Lightbox Functionality
-        // ===================================
-
-        /**
-         * Opens the lightbox with the specified image URL.
-         * @param {string} url - The URL (or placeholder data) of the image.
-         */
-        function openLightbox(url) {
-            lightboxImage.src = url;
-            lightbox.style.display = 'flex';
-        }
-
-        /**
-         * Closes the lightbox.
-         */
-        function closeLightbox() {
-            lightbox.style.display = 'none';
-            lightboxImage.src = '';
-        }
+        // Handler for quantity steppers
+        const changeQuantity = (delta) => {
+            setTableQuantity(prev => {
+                const newValue = prev + delta;
+                // Ensure quantity is never less than 1
+                return newValue >= 1 ? newValue : 1;
+            });
+        };
         
-        // Close lightbox when clicking outside the image
-        lightbox.addEventListener('click', (e) => {
-            if (e.target === lightbox) {
-                closeLightbox();
+        // Handler for final checkout (Payment Simulation) - ALERT() REPLACED WITH setErrorMessage
+        const handleCheckout = async () => {
+            if (!isAuthReady || !db || !userId) {
+                setErrorMessage("ระบบผู้ใช้หรือฐานข้อมูลยังไม่พร้อม กรุณารอสักครู่");
+                return;
             }
-        });
 
-        // ===================================
-        // C. Form Validation and Submission (Simulated)
-        // ===================================
-        
-        /**
-         * Sets error state for an input field.
-         * @param {string} fieldId - The ID of the input field.
-         * @param {string} errorId - The ID of the error message element.
-         * @param {string} message - The error message to display.
-         * @returns {boolean} always false
-         */
-        function setError(fieldId, errorId, message) {
-            const input = document.getElementById(fieldId);
-            const error = document.getElementById(errorId);
-            input.classList.add('input-error');
-            input.setAttribute('aria-invalid', 'true');
-            error.textContent = message;
-            return false;
-        }
+            if (!selectedPackage) {
+                setErrorMessage("กรุณาเลือกแพ็กเกจจัดเลี้ยงหลักก่อนดำเนินการต่อ");
+                return;
+            }
+            
+            setIsOrderProcessing(true);
 
-        /**
-         * Clears error state for an input field.
-         * @param {string} fieldId - The ID of the input field.
-         * @param {string} errorId - The ID of the error message element.
-         * @returns {boolean} always true
-         */
-        function clearError(fieldId, errorId) {
-            const input = document.getElementById(fieldId);
-            const error = document.getElementById(errorId);
-            input.classList.remove('input-error');
-            input.removeAttribute('aria-invalid');
-            error.textContent = '';
-            return true;
-        }
+            const orderData = {
+                userId: userId,
+                package: selectedPackage.name,
+                packagePrice: selectedPackage.price,
+                addons: selectedAddons.map(id => ({
+                    id: id,
+                    name: addonsData.find(a => a.id === id)?.name,
+                    price: addonsData.find(a => a.id === id)?.price,
+                })).filter(a => a.name),
+                tableQuantity: tableQuantity,
+                grandTotalPerTable: grandTotalPerTable,
+                finalEventTotal: finalEventTotal,
+                status: 'Pending Contact', // Initial status
+                createdAt: serverTimestamp(),
+            };
 
-        /**
-         * Validates all required form fields.
-         * @returns {boolean} True if all required fields are valid, false otherwise.
-         */
-        function validateForm() {
-            let isValid = true;
-            const name = document.getElementById('name').value.trim();
-            const phone = document.getElementById('phone-form').value.trim();
-            const emailOrLine = document.getElementById('line-email').value.trim();
-            const date = document.getElementById('date').value.trim();
-            const location = document.getElementById('location').value.trim();
-            const tableCount = parseInt(document.getElementById('table-count').value.trim());
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            // Path for public data: /artifacts/{appId}/public/data/orders
+            const collectionPath = `/artifacts/${appId}/public/data/orders`;
+            
+            try {
+                // Set document with auto-generated ID
+                const ordersCollectionRef = collection(db, collectionPath);
+                await setDoc(doc(ordersCollectionRef), orderData);
 
-            // 1. Name
-            if (name === '') { isValid = setError('name', 'name-error', 'กรุณากรอกชื่อ-นามสกุล') && isValid; } 
-            else { clearError('name', 'name-error'); }
-
-            // 2. Phone (9 or 10 digits only)
-            const phoneRegex = /^\d{9,10}$/;
-            if (!phoneRegex.test(phone)) { isValid = setError('phone-form', 'phone-error', 'กรุณากรอกเบอร์โทร 9-10 หลัก (เฉพาะตัวเลข)') && isValid; }
-            else { clearError('phone-form', 'phone-error'); }
-
-            // 3. Line/Email
-            if (emailOrLine === '') { isValid = setError('line-email', 'email-error', 'กรุณากรอกไลน์ ID หรืออีเมล') && isValid; }
-            else { clearError('line-email', 'email-error'); }
-
-            // 4. Date
-            if (date === '') { isValid = setError('date', 'date-error', 'กรุณาระบุวันที่จัดงาน') && isValid; }
-            else { clearError('date', 'date-error'); }
-
-            // 5. Location
-            if (location === '') { isValid = setError('location', 'location-error', 'กรุณาระบุสถานที่จัดงาน') && isValid; }
-            else { clearError('location', 'location-error'); }
-
-            // 6. Table Count (Min 10)
-            if (isNaN(tableCount) || tableCount < 10) { isValid = setError('table-count', 'count-error', 'จำนวนโต๊ะต้องไม่ต่ำกว่า 10') && isValid; }
-            else { clearError('table-count', 'count-error'); }
-
-            return isValid;
-        }
-
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-
-            if (validateForm()) {
-                const submitBtn = form.querySelector('.btn-primary');
-                const originalText = submitBtn.innerHTML;
-
-                // Show Loading State
-                submitBtn.disabled = true;
-                submitBtn.innerHTML = 'กำลังส่ง...';
-
-                // Simulate API call delay
-                await new Promise(resolve => setTimeout(resolve, 1500)); 
-
-                // Process data (for demonstration)
-                const formData = new FormData(form);
-                const data = Object.fromEntries(formData.entries());
-                console.log('Booking Request Sent:', data);
-
-                // Show success message
-                document.getElementById('booking-form-section').style.display = 'none';
-                document.getElementById('booking-success').style.display = 'block';
+                // Success: open payment modal
+                setIsPaymentModalOpen(true);
                 
-                // Reset button state (optional, as the form disappears)
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = originalText;
+            } catch (error) {
+                console.error("Error saving order to Firestore:", error);
+                // Custom UI for error instead of alert
+                setErrorMessage("เกิดข้อผิดพลาดในการบันทึกคำสั่งซื้อ กรุณาลองใหม่อีกครั้ง");
+            } finally {
+                setIsOrderProcessing(false);
             }
-        });
+        };
 
+        return (
+            <>
+                <PaymentModal />
+                
+                {/* Hero Section */}
+                <section className="text-center py-16 bg-red-700 text-white shadow-xl">
+                    <div className="max-w-4xl mx-auto px-4">
+                        <h1 className="text-4xl sm:text-5xl font-black mb-3 text-amber-300">อิ่มอร่อยทุกงานมงคล</h1>
+                        <p className="text-xl font-light mb-8">บริการจัดเลี้ยงโต๊ะจีนคุณภาพสูง ด้วยวัตถุดิบสดใหม่ คัดสรรอย่างพิถีพิถัน</p>
+                        <a href="#packages" className="bg-amber-400 text-red-900 font-bold px-8 py-3 rounded-xl text-lg hover:bg-amber-500 transition duration-300 transform hover:scale-105 shadow-lg">
+                            ดูแพ็กเกจทั้งหมด
+                        </a>
+                    </div>
+                </section>
 
-        // ===================================
-        // D. Smooth Scroll & Mobile Menu
-        // ===================================
+                {/* Packages Section (Step 1) */}
+                <section id="packages" className="py-16 px-4 max-w-7xl mx-auto">
+                    <h2 className="text-3xl font-extrabold text-red-700 text-center mb-4">1. เลือกแพ็กเกจจัดเลี้ยงหลัก (ราคา/โต๊ะ)</h2>
+                    <p className="text-center text-gray-600 mb-10">คลิกที่แพ็กเกจที่คุณต้องการเพื่อคำนวณราคารวม</p>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                        {packagesData.map(pkg => (
+                            <PackageCard
+                                key={pkg.id}
+                                pkg={pkg}
+                                isSelected={pkg.id === selectedPackageId}
+                                onSelect={handlePackageSelect}
+                            />
+                        ))}
+                    </div>
+                </section>
+
+                {/* Divider */}
+                <div className="h-10 bg-gray-100 shadow-inner"></div>
+
+                {/* Add-ons Section (Step 2) */}
+                <section id="addons" className="py-16 px-4 max-w-7xl mx-auto">
+                    <h2 className="text-3xl font-extrabold text-red-700 text-center mb-4">2. เลือกเมนูแอดออนเพิ่มเติม (ราคา/โต๊ะ)</h2>
+                    <p className="text-center text-gray-600 mb-10">เลือกอาหารจานพิเศษเพิ่มเติมจากแพ็กเกจหลัก (ราคาจะถูกบวกเพิ่มต่อโต๊ะ)</p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                        {addonsData.map(addon => (
+                            <AddonCard
+                                key={addon.id}
+                                addon={addon}
+                                isSelected={selectedAddons.includes(addon.id)}
+                                onToggle={handleAddonToggle}
+                            />
+                        ))}
+                    </div>
+                </section>
+
+                {/* Divider */}
+                <div className="h-10 bg-gray-100 shadow-inner"></div>
+
+                {/* Quantity Section (Step 3) */}
+                <section id="quantity" className="py-16 px-4 max-w-7xl mx-auto">
+                    <h2 className="text-3xl font-extrabold text-red-700 text-center mb-4">3. ระบุจำนวนโต๊ะที่ต้องการ</h2>
+                    <p className="text-center text-gray-600 mb-8">โปรดระบุจำนวนโต๊ะจีน (1 โต๊ะ/10 ท่าน) ที่คุณต้องการจัดเลี้ยง</p>
+
+                    <div className="flex justify-center">
+                        <div className="p-6 bg-white border-4 border-red-700 rounded-xl shadow-lg flex items-center space-x-4">
+                            <button
+                                onClick={() => changeQuantity(-1)}
+                                className="p-3 bg-red-700 text-white rounded-lg font-bold text-2xl hover:bg-red-800 transition duration-150 active:scale-95 disabled:opacity-50"
+                                disabled={tableQuantity <= 1}
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
+                                </svg>
+                            </button>
+                            <span className="text-5xl font-black text-red-800 w-24 text-center">{tableQuantity}</span>
+                            <button
+                                onClick={() => changeQuantity(1)}
+                                className="p-3 bg-red-700 text-white rounded-lg font-bold text-2xl hover:bg-red-800 transition duration-150 active:scale-95"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                                </svg>
+                            </button>
+                            <span className="text-xl font-semibold text-gray-600 ml-4">โต๊ะ</span>
+                        </div>
+                    </div>
+                </section>
+
+                {/* Order Summary Section */}
+                <section id="order-summary" className="py-16 px-4 bg-red-900">
+                    <div className="max-w-xl mx-auto p-6 sm:p-8 bg-red-800 rounded-2xl shadow-[0_0_50px_rgba(255,191,0,0.5)] border-4 border-amber-400">
+                        <h2 className="text-3xl font-bold text-amber-400 text-center mb-6">4. สรุปและดำเนินการชำระเงิน</h2>
+                        
+                        {/* Package Price (Per Table) */}
+                        <SummaryLine
+                            label={`แพ็กเกจหลักที่เลือก: ${selectedPackage ? selectedPackage.name : 'ยังไม่ได้เลือก'}`}
+                            value={formatCurrency(packagePrice)}
+                        />
+
+                        {/* Addons Total (Per Table) */}
+                        <SummaryLine
+                            label={`เมนูแอดออนรวม (${selectedAddons.length} รายการ):`}
+                            value={formatCurrency(addonsTotal)}
+                        />
+                        
+                        {/* Grand Total Per Table */}
+                        <SummaryLine
+                            label="ราคารวมต่อโต๊ะ"
+                            value={formatCurrency(grandTotalPerTable)}
+                        />
+
+                        {/* Quantity Applied */}
+                        <div className="flex justify-between items-center py-3 border-b border-white/20 mt-4">
+                            <span className="text-xl text-white font-bold">จำนวนโต๊ะที่สั่ง:</span>
+                            <span className="text-3xl text-amber-200 font-black">{tableQuantity}</span>
+                        </div>
+
+                        {/* FINAL EVENT TOTAL */}
+                        <SummaryLine
+                            label="ราคารวมสำหรับงานจัดเลี้ยงทั้งหมด"
+                            value={formatCurrency(finalEventTotal)}
+                            isTotal={true}
+                        />
+
+                        <p className="text-sm text-white/70 mt-4 text-center">
+                            * ราคานี้คือราคารวมสำหรับ {tableQuantity} โต๊ะ (ประมาณ {tableQuantity * 10} ท่าน) ยังไม่รวมค่าบริการจัดส่งและติดตั้ง
+                        </p>
+                        
+                        <div className="text-center mt-8">
+                            <button
+                                onClick={handleCheckout}
+                                disabled={!selectedPackage || isOrderProcessing || !isAuthReady}
+                                className={`font-bold px-8 py-3 rounded-xl text-lg transition duration-300 shadow-xl w-full sm:w-auto ${
+                                    (!selectedPackage || isOrderProcessing || !isAuthReady)
+                                    ? 'bg-gray-500 text-white cursor-not-allowed'
+                                    : 'bg-amber-400 text-red-900 hover:bg-amber-500 transform hover:scale-[1.02]'
+                                }`}
+                            >
+                                {isOrderProcessing ? 'กำลังบันทึกคำสั่งซื้อ...' : 'ดำเนินการชำระเงิน (จำลอง)'}
+                            </button>
+                        </div>
+                        
+                        {!selectedPackage && <p className="text-center text-sm text-amber-300 mt-2">** กรุณาเลือกแพ็กเกจหลักเพื่อดำเนินการชำระเงิน **</p>}
+                    </div>
+                </section>
+                
+                {/* Footer (Simple) */}
+                <footer className="bg-red-950 text-white/60 text-center py-6 text-sm">
+                    <p>&copy; 2024 โต๊ะจีนเจริญมงคล. บริการจัดเลี้ยงโต๊ะจีนพรีเมียม.</p>
+                </footer>
+            </>
+        );
+    };
+
+    // ----------------------------------------------------
+    // 5. Admin Login Component
+    // ----------------------------------------------------
+
+    const AdminLogin = () => {
+        const [username, setUsername] = useState('');
+        const [password, setPassword] = useState('');
         
-        const navLinksContainer = document.getElementById('nav-links');
-        const menuToggleBtn = document.getElementById('menu-toggle-btn');
+        const handleSubmit = (e) => {
+            e.preventDefault();
+            handleAdminLogin(username, password);
+        };
 
-        // Toggle mobile menu visibility
-        menuToggleBtn.addEventListener('click', () => {
-            navLinksContainer.classList.toggle('active');
-            // Basic mobile menu implementation:
-            if (navLinksContainer.classList.contains('active')) {
-                // For simplicity in single-file, we just use a small fix here
-                navLinksContainer.style.display = 'flex';
-                navLinksContainer.style.flexDirection = 'column';
-                navLinksContainer.style.position = 'absolute';
-                navLinksContainer.style.top = '100%';
-                navLinksContainer.style.left = '0';
-                navLinksContainer.style.width = '100%';
-                navLinksContainer.style.backgroundColor = 'var(--color-off-white)';
-                navLinksContainer.style.padding = '10px 0';
-                navLinksContainer.style.boxShadow = '0 5px 5px rgba(0,0,0,0.1)';
-            } else {
-                navLinksContainer.style.display = 'none';
+        return (
+            <div className="min-h-screen flex items-center justify-center p-4 bg-gray-100">
+                <div className="w-full max-w-md bg-white p-8 rounded-xl shadow-2xl border-t-8 border-red-700">
+                    <h2 className="text-3xl font-extrabold text-red-800 text-center mb-3">เข้าสู่ระบบผู้ดูแลระบบ</h2>
+                    <p className="text-center text-sm text-gray-600 mb-8">User: <code className="font-mono bg-gray-100 p-1 rounded">admin</code> | Pass: <code className="font-mono bg-gray-100 p-1 rounded">1234</code></p>
+                    
+                    <form onSubmit={handleSubmit}>
+                        <div className="mb-5">
+                            <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="admin-username">ชื่อผู้ใช้</label>
+                            <input
+                                id="admin-username"
+                                type="text"
+                                value={username}
+                                onChange={(e) => setUsername(e.target.value)}
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 transition duration-150"
+                                required
+                            />
+                        </div>
+
+                        <div className="mb-6">
+                            <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="admin-password">รหัสผ่าน</label>
+                            <input
+                                id="admin-password"
+                                type="password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 transition duration-150"
+                                required
+                            />
+                        </div>
+                        
+                        {loginError && (
+                            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4 text-sm" role="alert">
+                                {loginError}
+                            </div>
+                        )}
+
+                        <button
+                            type="submit"
+                            className="w-full bg-red-700 text-white py-3 rounded-lg font-semibold hover:bg-red-800 transition duration-200 shadow-md focus:outline-none focus:ring-4 focus:ring-red-300"
+                        >
+                            เข้าสู่ระบบ
+                        </button>
+                    </form>
+                    
+                    <div className="text-center mt-6">
+                        <button
+                            onClick={() => setAppMode('order')}
+                            className="text-sm text-red-600 hover:text-red-800 transition duration-150"
+                        >
+                            กลับสู่หน้าสั่งซื้อ
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    // ----------------------------------------------------
+    // 6. Admin Dashboard Component
+    // ----------------------------------------------------
+
+    const AdminDashboard = () => {
+        const [orders, setOrders] = useState([]);
+        const [isOrdersLoading, setIsOrdersLoading] = useState(true);
+        const [filterStatus, setFilterStatus] = useState('All');
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const collectionPath = `/artifacts/${appId}/public/data/orders`;
+        
+        // Fetch and listen to orders in real-time
+        useEffect(() => {
+            if (!db) return;
+
+            const ordersCollectionRef = collection(db, collectionPath);
+            const q = query(ordersCollectionRef);
+
+            setIsOrdersLoading(true);
+
+            // Real-time listener
+            const unsubscribe = onSnapshot(q, (snapshot) => {
+                const fetchedOrders = snapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data(),
+                    // Format timestamp
+                    createdAt: doc.data().createdAt?.toDate ? doc.data().createdAt.toDate().toLocaleString('th-TH') : 'N/A'
+                }));
+                // Sort by creation time (newest first)
+                setOrders(fetchedOrders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+                setIsOrdersLoading(false);
+            }, (error) => {
+                console.error("Error listening to orders:", error);
+                setIsOrdersLoading(false);
+            });
+
+            return () => unsubscribe();
+        }, [db, collectionPath]);
+        
+        // Handlers for Admin actions
+        const updateOrderStatus = useCallback(async (orderId, newStatus) => {
+            if (!db) return;
+            try {
+                const orderRef = doc(db, collectionPath, orderId);
+                await updateDoc(orderRef, { status: newStatus });
+            } catch (error) {
+                console.error("Error updating order status:", error);
             }
-        });
+        }, [db, collectionPath]);
 
-        // Set active class on scroll
-        const sections = document.querySelectorAll('section');
-        const navItems = document.querySelectorAll('.nav-links a');
+        // The actual delete logic
+        const executeDelete = useCallback(async (orderId) => {
+            if (!db) return;
+            try {
+                const orderRef = doc(db, collectionPath, orderId);
+                await deleteDoc(orderRef);
+            } catch (error) {
+                console.error("Error deleting order:", error);
+                setErrorMessage("เกิดข้อผิดพลาดในการลบคำสั่งซื้อ กรุณาลองใหม่อีกครั้ง");
+            }
+        }, [db, collectionPath, setErrorMessage]);
 
-        window.addEventListener('scroll', () => {
-            let current = '';
-            sections.forEach(section => {
-                const sectionTop = section.offsetTop - 100; // Offset for sticky navbar
-                const sectionHeight = section.clientHeight;
-                if (pageYOffset >= sectionTop) {
-                    current = section.getAttribute('id');
-                }
+
+        const handleDeleteClick = useCallback((orderId) => {
+            setConfirmation({
+                message: "คุณแน่ใจหรือไม่ที่จะลบคำสั่งซื้อนี้? การดำเนินการนี้ไม่สามารถย้อนกลับได้.",
+                onConfirm: () => executeDelete(orderId),
             });
+        }, [executeDelete, setConfirmation]);
 
-            navItems.forEach(a => {
-                a.classList.remove('active');
-                if (a.getAttribute('href').includes(current)) {
-                    a.classList.add('active');
-                }
-            });
-        });
 
-        // Close mobile menu on link click
-        navLinksContainer.querySelectorAll('a').forEach(link => {
-            link.addEventListener('click', () => {
-                if (window.innerWidth < 768) {
-                    navLinksContainer.classList.remove('active');
-                    navLinksContainer.style.display = 'none';
-                }
-            });
-        });
+        // Filtered orders list
+        const filteredOrders = useMemo(() => {
+            if (filterStatus === 'All') return orders;
+            return orders.filter(order => order.status === filterStatus);
+        }, [orders, filterStatus]);
 
-    </script>
-</body>
-</html>
+
+        return (
+            <div className="min-h-screen bg-gray-50 p-4 sm:p-8">
+                <div className="max-w-7xl mx-auto">
+                    <h2 className="text-4xl font-extrabold text-red-800 mb-2">แดชบอร์ดผู้ดูแลระบบ</h2>
+                    <p className="text-gray-600 mb-8">จัดการและตรวจสอบคำสั่งซื้อโต๊ะจีนทั้งหมด</p>
+                    
+                    <div className="flex justify-between items-center mb-6 flex-wrap">
+                        <div className="mb-4 sm:mb-0">
+                            <label htmlFor="status-filter" className="font-medium text-gray-700 mr-3">ตัวกรองสถานะ:</label>
+                            <select
+                                id="status-filter"
+                                value={filterStatus}
+                                onChange={(e) => setFilterStatus(e.target.value)}
+                                className="p-2 border border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"
+                            >
+                                <option value="All">ทั้งหมด ({orders.length})</option>
+                                {Object.keys(ORDER_STATUSES).map(statusKey => (
+                                    <option key={statusKey} value={statusKey}>
+                                        {ORDER_STATUSES[statusKey].label} ({orders.filter(o => o.status === statusKey).length})
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <button
+                            onClick={handleAdminLogout}
+                            className="bg-gray-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-600 transition duration-150"
+                        >
+                            ออกจากระบบ
+                        </button>
+                    </div>
+
+                    {isOrdersLoading ? (
+                        <div className="text-center py-10 text-red-700 font-bold">กำลังโหลดคำสั่งซื้อ...</div>
+                    ) : filteredOrders.length === 0 ? (
+                        <div className="text-center py-10 text-gray-500">
+                            <p className="text-xl font-bold">ไม่พบคำสั่งซื้อในสถานะ {filterStatus === 'All' ? 'ใดๆ' : ORDER_STATUSES[filterStatus]?.label}</p>
+                            <p className="mt-2">ลองเปลี่ยนตัวกรองสถานะ หรือรอคำสั่งซื้อใหม่</p>
+                        </div>
+                    ) : (
+                        <div className="bg-white shadow-xl rounded-xl overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-red-50">
+                                    <tr>
+                                        <th className="px-4 py-3 text-left text-xs font-bold text-red-700 uppercase tracking-wider">ID / ลูกค้า</th>
+                                        <th className="px-4 py-3 text-left text-xs font-bold text-red-700 uppercase tracking-wider">รายละเอียด</th>
+                                        <th className="px-4 py-3 text-left text-xs font-bold text-red-700 uppercase tracking-wider">จำนวนโต๊ะ</th>
+                                        <th className="px-4 py-3 text-left text-xs font-bold text-red-700 uppercase tracking-wider">ยอดรวม</th>
+                                        <th className="px-4 py-3 text-left text-xs font-bold text-red-700 uppercase tracking-wider">สถานะ</th>
+                                        <th className="px-4 py-3 text-left text-xs font-bold text-red-700 uppercase tracking-wider">ดำเนินการ</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                    {filteredOrders.map((order) => (
+                                        <tr key={order.id} className="hover:bg-gray-50 transition duration-100">
+                                            <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                <div className="font-mono text-xs bg-gray-100 p-1 rounded inline-block mb-1">{order.id}</div>
+                                                <div className="text-xs text-gray-500">ลูกค้า ID: {order.userId.substring(0, 8)}...</div>
+                                                <div className="text-xs text-gray-500 mt-1">วันที่: {order.createdAt}</div>
+                                            </td>
+                                            <td className="px-4 py-4 text-sm text-gray-600">
+                                                <p className="font-semibold text-red-700">{order.package}</p>
+                                                <p className="text-xs text-gray-500">แอดออน: {order.addons.length > 0 ? order.addons.map(a => a.name).join(', ') : '-'}</p>
+                                            </td>
+                                            <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 font-bold">{order.tableQuantity}</td>
+                                            <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-green-700">{formatCurrency(order.finalEventTotal)}</td>
+                                            <td className="px-4 py-4 whitespace-nowrap text-sm">
+                                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${ORDER_STATUSES[order.status]?.color || 'bg-gray-100 text-gray-800'}`}>
+                                                    {ORDER_STATUSES[order.status]?.label || order.status}
+                                                </span>
+                                                <select
+                                                    value={order.status}
+                                                    onChange={(e) => updateOrderStatus(order.id, e.target.value)}
+                                                    className="mt-1 block w-full text-xs p-1 border border-gray-300 rounded-md focus:ring-red-500 focus:border-red-500"
+                                                >
+                                                    {Object.keys(ORDER_STATUSES).map(statusKey => (
+                                                        <option key={statusKey} value={statusKey}>{ORDER_STATUSES[statusKey].label}</option>
+                                                    ))}
+                                                </select>
+                                            </td>
+                                            <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                                <button
+                                                    onClick={() => handleDeleteClick(order.id)}
+                                                    className="text-red-600 hover:text-red-900 transition duration-150"
+                                                >
+                                                    ลบ
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
+    // ----------------------------------------------------
+    // 7. Main Render Logic
+    // ----------------------------------------------------
+
+    const renderContent = () => {
+        if (appMode === 'admin-login') {
+            return <AdminLogin />;
+        }
+        if (appMode === 'admin-dashboard' && isAdminLoggedIn) {
+            return <AdminDashboard />;
+        }
+        // Default mode
+        return <TohChinOrderApp />;
+    };
+
+
+    // ----------------------------------------------------
+    // 8. Top-Level UI (Navigation)
+    // ----------------------------------------------------
+
+    return (
+        <div className="min-h-screen bg-orange-50 font-sans">
+            {/* Custom Dialogs (NEW: Added to handle alert/confirm replacements) */}
+            <CustomAlertDialog 
+                message={errorMessage} 
+                onClose={() => setErrorMessage('')} 
+            />
+            <CustomConfirmDialog 
+                config={confirmation} 
+                onCancel={() => setConfirmation(null)}
+            />
+            
+            {/* Navigation Bar (Simple) */}
+            <nav className="sticky top-0 z-50 bg-red-800 shadow-lg p-4 flex justify-between items-center">
+                <a href="#" className="text-2xl font-extrabold text-white tracking-wider" onClick={() => setAppMode('order')}>
+                    โต๊ะจีน <span className="text-amber-400">เจริญมงคล</span>
+                </a>
+                
+                <div className="flex items-center space-x-4">
+                    {/* Admin/User Status Area */}
+                    {appMode === 'admin-dashboard' ? (
+                        <span className="bg-amber-400 text-red-900 font-bold px-3 py-1 rounded-full text-sm">
+                            ✓ ADMIN MODE
+                        </span>
+                    ) : (
+                        <span className="text-xs font-mono bg-red-700 text-amber-400 p-1 rounded-md max-w-[100px] sm:max-w-none truncate" title={userId}>
+                            ID: {userId ? `${userId.substring(0, 5)}...` : 'N/A'}
+                        </span>
+                    )}
+
+                    {/* Admin Toggle Button */}
+                    {appMode === 'order' && (
+                        <button 
+                            onClick={() => setAppMode('admin-login')}
+                            className="bg-red-600 text-white hover:bg-red-500 transition duration-200 px-3 py-2 rounded-lg text-sm font-medium"
+                        >
+                            <span className="hidden sm:inline">เข้าสู่ระบบ</span> ผู้ดูแล
+                        </button>
+                    )}
+                    
+                    {appMode === 'admin-dashboard' && (
+                        <button 
+                            onClick={handleAdminLogout}
+                            className="bg-gray-500 text-white hover:bg-gray-600 transition duration-200 px-3 py-2 rounded-lg text-sm font-medium"
+                        >
+                            ออกจากระบบ
+                        </button>
+                    )}
+
+                    {/* Order Navigation Links (Only in Order Mode) */}
+                    <div className={`hidden md:flex md:items-center ${appMode !== 'order' ? 'hidden' : ''}`}>
+                        <a href="#packages" className="text-white hover:text-amber-400 px-3 py-2 text-sm font-medium">แพ็กเกจ</a>
+                        <a href="#addons" className="text-white hover:text-amber-400 px-3 py-2 text-sm font-medium">แอดออน</a>
+                        <a href="#quantity" className="text-white hover:text-amber-400 px-3 py-2 text-sm font-medium">จำนวนโต๊ะ</a>
+                        <a href="#order-summary" className="bg-amber-400 text-red-900 font-bold px-4 py-2 rounded-lg text-sm transition duration-200 ml-4 hover:bg-amber-500">
+                            สรุปราคา
+                        </a>
+                    </div>
+                    
+                    {/* Mobile Menu Toggle (Only in Order Mode) */}
+                    {appMode === 'order' && (
+                        <button
+                            className="md:hidden text-white"
+                            onClick={() => setIsMenuOpen(!isMenuOpen)}
+                        >
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={isMenuOpen ? "M6 18L18 6M6 6l12 12" : "M4 6h16M4 12h16m-7 6h7"}></path>
+                            </svg>
+                        </button>
+                    )}
+                </div>
+
+                {/* Mobile Menu Content (Only in Order Mode) */}
+                <div className={`absolute md:hidden w-full left-0 top-full bg-red-800 transition-all duration-300 ${isMenuOpen && appMode === 'order' ? 'flex flex-col' : 'hidden'}`}>
+                    <a href="#packages" onClick={() => setIsMenuOpen(false)} className="text-white hover:text-amber-400 px-4 py-2 text-sm font-medium">แพ็กเกจ</a>
+                    <a href="#addons" onClick={() => setIsMenuOpen(false)} className="text-white hover:text-amber-400 px-4 py-2 text-sm font-medium">แอดออน</a>
+                    <a href="#quantity" onClick={() => setIsMenuOpen(false)} className="text-white hover:text-amber-400 px-4 py-2 text-sm font-medium">จำนวนโต๊ะ</a>
+                    <a href="#order-summary" onClick={() => setIsMenuOpen(false)} className="bg-amber-400 text-red-900 font-bold px-4 py-2 rounded-lg text-sm transition duration-200 m-2 hover:bg-amber-500 text-center">
+                        สรุปราคา
+                    </a>
+                </div>
+            </nav>
+
+            {/* Main Content Render */}
+            {renderContent()}
+        </div>
+    );
+}
