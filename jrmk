@@ -1,7 +1,21 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
-import { getFirestore, doc, setDoc, collection, serverTimestamp, onSnapshot, query, where, updateDoc, deleteDoc } from 'firebase/firestore';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from 'firebase/auth';
+import { getFirestore, doc, setDoc, collection, serverTimestamp, onSnapshot, query, where, updateDoc, deleteDoc, getDocs } from 'firebase/firestore';
+
+// ----------------------------------------------------
+// Utility for Firestore-based Password Hashing
+// ----------------------------------------------------
+// NOTE: This is a simple, non-cryptographic hash for demonstration purposes 
+// in an environment with limited external library access. 
+// DO NOT use this for production systems.
+const HASH_SALT = 'TohChinSecretSalt123';
+const hashPassword = (password) => {
+    // Combine password with a salt and use Base64 encoding (btoa) 
+    // to create a string safe for storage and simple comparison.
+    const combined = password + HASH_SALT;
+    return btoa(combined).substring(0, 100); 
+};
 
 // ----------------------------------------------------
 // 1. Data Definitions
@@ -44,7 +58,8 @@ export default function App() {
     // Firebase States
     const [db, setDb] = useState(null);
     const [auth, setAuth] = useState(null);
-    const [user, setUser] = useState(null); // Full user object (including email/displayName)
+    // user will be { uid, email } for logged-in customer, or anonymous user object from firebase
+    const [user, setUser] = useState(null); 
     const [userId, setUserId] = useState(null); // User UID
     const [isAuthReady, setIsAuthReady] = useState(false);
     
@@ -60,10 +75,18 @@ export default function App() {
     const [tableQuantity, setTableQuantity] = useState(1);
     const [isOrderProcessing, setIsOrderProcessing] = useState(false);
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+    const [customerOrders, setCustomerOrders] = useState([]);
 
     // Dialog States for error/confirmation replacement
     const [errorMessage, setErrorMessage] = useState('');
     const [confirmation, setConfirmation] = useState(null); // { message, onConfirm }
+    
+    // Global App ID for Firestore path
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+    // Firestore Collection Path
+    const CUSTOMER_COLLECTION_PATH = `/artifacts/${appId}/public/data/customers`;
+    const ORDER_COLLECTION_PATH = `/artifacts/${appId}/public/data/orders`;
 
 
     // --- Firebase Initialization and Authentication ---
@@ -87,8 +110,16 @@ export default function App() {
                 // Authentication listener logic
                 onAuthStateChanged(firebaseAuth, async (currentUser) => {
                     if (currentUser) {
-                        setUser(currentUser);
+                        // Check if the current user is a "logged-in" customer
+                        if (currentUser.isAnonymous) {
+                            // If anonymous, initialize with base UID
+                            setUser(currentUser);
+                        } else {
+                            // If signed in via custom token, use the full user object
+                            setUser(currentUser);
+                        }
                         setUserId(currentUser.uid);
+
                     } else if (typeof __initial_auth_token !== 'undefined') {
                         // Sign in with custom token if available
                         try {
@@ -108,11 +139,6 @@ export default function App() {
                         setUserId(result.user.uid);
                     }
                     setIsAuthReady(true);
-                    
-                    // Reset admin status if user changes (e.g., admin signs out)
-                    if (!currentUser || currentUser.email !== 'admin@tohchin.com') {
-                        setIsAdminLoggedIn(false);
-                    }
                 });
             } catch (error) {
                 console.error("Firebase initialization failed:", error);
@@ -123,11 +149,52 @@ export default function App() {
         initFirebase();
     }, []);
 
+    // Fetch customer orders when authenticated and user is a known customer
+    useEffect(() => {
+        if (!db || !isAuthReady || !user || user.isAnonymous || !user.email) {
+            setCustomerOrders([]);
+            return;
+        }
+
+        const ordersQuery = query(
+            collection(db, ORDER_COLLECTION_PATH),
+            where("customerEmail", "==", user.email)
+        );
+
+        const unsubscribe = onSnapshot(ordersQuery, (snapshot) => {
+            const orders = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                timestamp: doc.data().timestamp ? doc.data().timestamp.toDate() : new Date(),
+            }));
+            // Sort by latest order first
+            orders.sort((a, b) => b.timestamp - a.timestamp);
+            setCustomerOrders(orders);
+        }, (error) => {
+            console.error("Error fetching customer orders:", error);
+            setErrorMessage("ไม่สามารถดึงข้อมูลรายการสั่งซื้อของลูกค้าได้");
+        });
+
+        // Cleanup function
+        return () => unsubscribe();
+    }, [db, isAuthReady, user, ORDER_COLLECTION_PATH]); // Depend on user.email to re-run when customer state changes
+
+    // Function to set the customer state after successful Firestore-based login
+    const setCustomerLoggedIn = (email) => {
+        // We simulate a logged-in state by keeping the Firebase anonymous UID 
+        // but adding the verified email to the local user state.
+        setUser(prevUser => ({
+            ...prevUser,
+            email: email, // This is the key change to simulate customer login
+            isAnonymous: false,
+        }));
+        // Switch to the dashboard
+        setAppMode('customer-dashboard');
+    };
+
     // Admin Handlers
     const handleAdminLogin = (username, password) => {
         if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
-            // Note: In a real app, this should use Firebase Email/Password Auth for an admin account.
-            // For this demo, we use a simple hardcoded check.
             setIsAdminLoggedIn(true);
             setAppMode('admin-dashboard');
             setLoginError('');
@@ -137,13 +204,92 @@ export default function App() {
     };
 
     const handleSignOut = () => {
-        if (auth) {
-            signOut(auth).then(() => {
-                // Clear state and return to order view
-                setIsAdminLoggedIn(false);
-                setAppMode('order');
-            }).catch(console.error);
+        // Clear customer-specific state and potentially revert to anonymous Firebase user
+        if (user && !user.isAnonymous) {
+            // Simulate log out by removing the email from local state
+            setUser(prevUser => ({
+                ...prevUser,
+                email: undefined,
+                isAnonymous: true,
+            }));
+            setAppMode('order');
+            setIsAdminLoggedIn(false);
+        } else {
+            // General sign-out (for admin or if we were using real Firebase auth)
+            if (auth) {
+                signOut(auth).then(() => {
+                    setIsAdminLoggedIn(false);
+                    setAppMode('order');
+                }).catch(console.error);
+            }
         }
+    };
+    
+    // --- Order Logic ---
+    const handleToggleAddon = (addonId) => {
+        setSelectedAddons(prev => 
+            prev.includes(addonId) ? prev.filter(id => id !== addonId) : [...prev, addonId]
+        );
+    };
+
+    const calculateTotal = useMemo(() => {
+        const selectedPackage = packagesData.find(pkg => pkg.id === selectedPackageId);
+        const packagePrice = selectedPackage ? selectedPackage.price : 0;
+
+        const totalAddons = selectedAddons.reduce((sum, addonId) => {
+            const addon = addonsData.find(a => a.id === addonId);
+            return sum + (addon ? addon.price : 0);
+        }, 0);
+
+        const grandTotalPerTable = packagePrice + totalAddons;
+        const finalEventTotal = grandTotalPerTable * tableQuantity;
+
+        return { packagePrice, totalAddons, grandTotalPerTable, finalEventTotal };
+    }, [selectedPackageId, selectedAddons, tableQuantity]);
+
+    const handlePlaceOrder = async () => {
+        if (!selectedPackageId) {
+            setErrorMessage('กรุณาเลือกแพ็กเกจอาหารก่อนดำเนินการสั่งซื้อ');
+            return;
+        }
+        if (!user || user.isAnonymous || !user.email) {
+            // If the user hasn't logged in with a registered email, force them to Auth page
+            setAppMode('customer-auth');
+            return;
+        }
+
+        setConfirmation({
+            message: `ยืนยันการสั่งซื้อรวม ${formatCurrency(calculateTotal.finalEventTotal)} สำหรับ ${tableQuantity} โต๊ะ?`,
+            onConfirm: async () => {
+                setIsOrderProcessing(true);
+                try {
+                    const orderData = {
+                        customerEmail: user.email, // Use the simulated customer email
+                        tableQuantity: tableQuantity,
+                        packageId: selectedPackageId,
+                        addonIds: selectedAddons,
+                        totalAmount: calculateTotal.finalEventTotal,
+                        status: 'Pending Contact',
+                        timestamp: serverTimestamp(),
+                    };
+                    
+                    await setDoc(doc(collection(db, ORDER_COLLECTION_PATH)), orderData);
+                    
+                    setIsOrderProcessing(false);
+                    setIsPaymentModalOpen(true);
+                    
+                    // Reset order state for the next order
+                    setSelectedPackageId(null);
+                    setSelectedAddons([]);
+                    setTableQuantity(1);
+                    
+                } catch (error) {
+                    console.error("Error placing order:", error);
+                    setErrorMessage("เกิดข้อผิดพลาดในการบันทึกรายการสั่งซื้อ: " + error.message);
+                    setIsOrderProcessing(false);
+                }
+            }
+        });
     };
     
     // ----------------------------------------------------
@@ -201,7 +347,47 @@ export default function App() {
             </div>
         );
     };
-    
+
+    const PaymentModal = () => {
+        const selectedPackage = packagesData.find(pkg => pkg.id === selectedPackageId);
+        const packagePrice = selectedPackage ? selectedPackage.price : 0;
+        const totalAddons = selectedAddons.reduce((sum, addonId) => {
+            const addon = addonsData.find(a => a.id === addonId);
+            return sum + (addon ? addon.price : 0);
+        }, 0);
+        const grandTotalPerTable = packagePrice + totalAddons;
+        const finalEventTotal = grandTotalPerTable * tableQuantity;
+
+        if (!isPaymentModalOpen) return null;
+
+        return (
+            <div className="fixed inset-0 bg-black bg-opacity-75 z-[100] flex items-center justify-center p-4">
+                <div className="bg-white p-8 rounded-2xl max-w-lg w-full text-center shadow-2xl">
+                    <div className="text-6xl text-green-600 mb-4">
+                        <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    </div>
+                    <h3 className="text-2xl font-bold text-gray-900 mb-2">สั่งซื้อสำเร็จ!</h3>
+                    <p className="text-gray-600 mb-6">
+                        ขอบคุณสำหรับการสั่งซื้อของโต๊ะจีนเจริญมงคล รายการสั่งซื้อของคุณได้รับการบันทึกแล้ว
+                    </p>
+                    <div className="bg-gray-50 p-4 rounded-lg mb-6">
+                        <p className="text-xl font-extrabold text-red-700 mb-1">{formatCurrency(finalEventTotal)}</p>
+                        <p className="text-sm text-gray-500">รวมทั้งหมด ({tableQuantity} โต๊ะ)</p>
+                    </div>
+                    <p className="text-sm text-gray-700 mb-6">
+                        ทีมงานของเราจะติดต่อกลับทางอีเมล **{user?.email || 'ของคุณ'}** ภายใน 24 ชั่วโมงเพื่อยืนยันรายละเอียดการจัดงานและขั้นตอนการชำระเงิน
+                    </p>
+                    <button
+                        onClick={() => { setIsPaymentModalOpen(false); setAppMode('customer-dashboard'); }}
+                        className="bg-amber-500 text-white font-bold px-6 py-3 rounded-lg hover:bg-amber-600 transition duration-300 w-full"
+                    >
+                        ดูรายการสั่งซื้อ
+                    </button>
+                </div>
+            </div>
+        );
+    };
+
     const PackageCard = ({ pkg, isSelected, onSelect }) => {
         const isPremium = pkg.isRecommended;
         const baseClasses = "card cursor-pointer p-6 rounded-xl transition duration-300 relative shadow-md h-full flex flex-col justify-between";
@@ -259,7 +445,7 @@ export default function App() {
             </div>
         );
     };
-    
+
     const SummaryLine = ({ label, value, isTotal = false }) => (
         <div className={`flex justify-between items-center py-3 ${isTotal ? 'border-t-2 border-amber-400 pt-4 mt-4' : 'border-b border-white/20'}`}>
             <span className={`text-xl ${isTotal ? 'text-amber-400 font-bold' : 'text-white font-normal'}`}>{label}</span>
@@ -269,460 +455,192 @@ export default function App() {
         </div>
     );
     
-    const PaymentModal = () => {
-        const selectedPackage = packagesData.find(pkg => pkg.id === selectedPackageId);
-        const packagePrice = selectedPackage ? selectedPackage.price : 0;
-        const totalAddons = selectedAddons.reduce((sum, addonId) => {
-            const addon = addonsData.find(a => a.id === addonId);
-            return sum + (addon ? addon.price : 0);
-        }, 0);
-        const grandTotalPerTable = packagePrice + totalAddons;
-        const finalEventTotal = grandTotalPerTable * tableQuantity;
-
-        if (!isPaymentModalOpen) return null;
-
-        return (
-            <div className="fixed inset-0 bg-black bg-opacity-75 z-[100] flex items-center justify-center p-4">
-                <div className="bg-white p-8 rounded-2xl max-w-lg w-full text-center shadow-2xl">
-                    <div className="text-6xl text-green-600 mb-4">
-                        <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                    </div>
-                    <h3 className="text-3xl font-black text-red-700 mb-4">
-                        ยืนยันคำสั่งซื้อสำเร็จ!
-                    </h3>
-                    <p className="text-lg text-gray-700 mb-6">
-                        คำสั่งซื้อโต๊ะจีนของคุณ ({tableQuantity} โต๊ะ) ได้ถูกบันทึกในระบบเรียบร้อยแล้ว
-                    </p>
-                    
-                    <div className="bg-red-50 p-4 rounded-lg mb-6 border-2 border-red-200">
-                        <p className="text-sm font-semibold text-gray-600">ราคารวมสุดท้าย</p>
-                        <p className="text-4xl font-extrabold text-red-700">{formatCurrency(finalEventTotal)}</p>
-                    </div>
-                    
-                    <p className="text-sm text-gray-500 mb-6">
-                        ** ขั้นตอนต่อไป: ** ทีมงานจะติดต่อกลับเพื่อยืนยันวันจัดงานและดำเนินการชำระเงินมัดจำ
-                        {user?.email && <p className="font-semibold mt-2 text-red-700">คุณสามารถตรวจสอบสถานะคำสั่งซื้อได้ที่หน้าแดชบอร์ดลูกค้า!</p>}
-                    </p>
-                    
-                    <button
-                        onClick={() => {
-                            setIsPaymentModalOpen(false);
-                            setSelectedPackageId(null);
-                            setSelectedAddons([]);
-                            setTableQuantity(1);
-                            if (user?.email) {
-                                setAppMode('customer-dashboard');
-                            }
-                        }}
-                        className="bg-red-700 text-white font-bold px-6 py-3 rounded-xl hover:bg-red-800 transition duration-300"
-                    >
-                        {user?.email ? 'ดูสถานะคำสั่งซื้อ' : 'ปิดและสร้างคำสั่งซื้อใหม่'}
-                    </button>
-                </div>
-            </div>
-        );
-    }
-    
     // ----------------------------------------------------
-    // 4. Order App View (The original main content)
+    // 4. Customer Authentication (Replaces Firebase Auth)
     // ----------------------------------------------------
-    
-    const TohChinOrderApp = () => {
-        const selectedPackage = useMemo(() =>
-            packagesData.find(pkg => pkg.id === selectedPackageId),
-            [selectedPackageId]
-        );
 
-        const { packagePrice, addonsTotal, grandTotalPerTable, finalEventTotal } = useMemo(() => {
-            const pkgPrice = selectedPackage ? selectedPackage.price : 0;
-            
-            const totalAddons = selectedAddons.reduce((sum, addonId) => {
-                const addon = addonsData.find(a => a.id === addonId);
-                return sum + (addon ? addon.price : 0);
-            }, 0);
-
-            const gtpTable = pkgPrice + totalAddons;
-            
-            return {
-                packagePrice: pkgPrice,
-                addonsTotal: totalAddons,
-                grandTotalPerTable: gtpTable, // Total price for one table
-                finalEventTotal: gtpTable * tableQuantity, // Total price for the entire event
-            };
-        }, [selectedPackage, selectedAddons, tableQuantity]);
-
-        // Handlers
-        const handlePackageSelect = (pkgId) => {
-            setSelectedPackageId(pkgId);
-            document.getElementById('quantity')?.scrollIntoView({ behavior: 'smooth' });
-        };
-
-        const handleAddonToggle = (addonId) => {
-            setSelectedAddons(prevSelected => {
-                if (prevSelected.includes(addonId)) {
-                    // Remove addon
-                    return prevSelected.filter(id => id !== addonId);
-                } else {
-                    // Add addon
-                    return [...prevSelected, addonId];
-                }
-            });
-            document.getElementById('quantity')?.scrollIntoView({ behavior: 'smooth' });
-        };
-
-        const changeQuantity = (delta) => {
-            setTableQuantity(prev => {
-                const newValue = prev + delta;
-                return newValue >= 1 ? newValue : 1;
-            });
-        };
-        
-        // Handler for final checkout (Payment Simulation)
-        const handleCheckout = async () => {
-            if (!isAuthReady || !db || !userId) {
-                setErrorMessage("ระบบผู้ใช้หรือฐานข้อมูลยังไม่พร้อม กรุณารอสักครู่");
-                return;
-            }
-
-            if (!selectedPackage) {
-                setErrorMessage("กรุณาเลือกแพ็กเกจจัดเลี้ยงหลักก่อนดำเนินการต่อ");
-                return;
-            }
-            
-            // If the user is only signed in anonymously, prompt for login/registration
-            if (!user.email) {
-                setErrorMessage("กรุณาล็อกอินหรือสมัครสมาชิกเพื่อบันทึกและติดตามคำสั่งซื้อของคุณ");
-                setAppMode('customer-auth');
-                return;
-            }
-
-            setIsOrderProcessing(true);
-
-            const orderData = {
-                userId: userId,
-                customerEmail: user.email, // Use customer email for better tracking
-                package: selectedPackage.name,
-                packagePrice: selectedPackage.price,
-                addons: selectedAddons.map(id => ({
-                    id: id,
-                    name: addonsData.find(a => a.id === id)?.name,
-                    price: addonsData.find(a => a.id === id)?.price,
-                })).filter(a => a.name),
-                tableQuantity: tableQuantity,
-                grandTotalPerTable: grandTotalPerTable,
-                finalEventTotal: finalEventTotal,
-                status: 'Pending Contact', // Initial status
-                createdAt: serverTimestamp(),
-            };
-
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            const collectionPath = `/artifacts/${appId}/public/data/orders`;
-            
-            try {
-                const ordersCollectionRef = collection(db, collectionPath);
-                await setDoc(doc(ordersCollectionRef), orderData);
-
-                setIsPaymentModalOpen(true);
-                
-            } catch (error) {
-                console.error("Error saving order to Firestore:", error);
-                setErrorMessage("เกิดข้อผิดพลาดในการบันทึกคำสั่งซื้อ กรุณาลองใหม่อีกครั้ง");
-            } finally {
-                setIsOrderProcessing(false);
-            }
-        };
-
-        return (
-            <>
-                <PaymentModal />
-                
-                {/* Hero Section */}
-                <section className="text-center py-16 bg-red-700 text-white shadow-xl">
-                    <div className="max-w-4xl mx-auto px-4">
-                        <h1 className="text-4xl sm:text-5xl font-black mb-3 text-amber-300">อิ่มอร่อยทุกงานมงคล</h1>
-                        <p className="text-xl font-light mb-8">บริการจัดเลี้ยงโต๊ะจีนคุณภาพสูง ด้วยวัตถุดิบสดใหม่ คัดสรรอย่างพิถีพิถัน</p>
-                        <a href="#packages" className="bg-amber-400 text-red-900 font-bold px-8 py-3 rounded-xl text-lg hover:bg-amber-500 transition duration-300 transform hover:scale-105 shadow-lg">
-                            ดูแพ็กเกจทั้งหมด
-                        </a>
-                    </div>
-                </section>
-
-                {/* Packages Section (Step 1) */}
-                <section id="packages" className="py-16 px-4 max-w-7xl mx-auto">
-                    <h2 className="text-3xl font-extrabold text-red-700 text-center mb-4">1. เลือกแพ็กเกจจัดเลี้ยงหลัก (ราคา/โต๊ะ)</h2>
-                    <p className="text-center text-gray-600 mb-10">คลิกที่แพ็กเกจที่คุณต้องการเพื่อคำนวณราคารวม</p>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                        {packagesData.map(pkg => (
-                            <PackageCard
-                                key={pkg.id}
-                                pkg={pkg}
-                                isSelected={pkg.id === selectedPackageId}
-                                onSelect={handlePackageSelect}
-                            />
-                        ))}
-                    </div>
-                </section>
-
-                {/* Divider */}
-                <div className="h-10 bg-gray-100 shadow-inner"></div>
-
-                {/* Add-ons Section (Step 2) */}
-                <section id="addons" className="py-16 px-4 max-w-7xl mx-auto">
-                    <h2 className="text-3xl font-extrabold text-red-700 text-center mb-4">2. เลือกเมนูแอดออนเพิ่มเติม (ราคา/โต๊ะ)</h2>
-                    <p className="text-center text-gray-600 mb-10">เลือกอาหารจานพิเศษเพิ่มเติมจากแพ็กเกจหลัก (ราคาจะถูกบวกเพิ่มต่อโต๊ะ)</p>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                        {addonsData.map(addon => (
-                            <AddonCard
-                                key={addon.id}
-                                addon={addon}
-                                isSelected={selectedAddons.includes(addon.id)}
-                                onToggle={handleAddonToggle}
-                            />
-                        ))}
-                    </div>
-                </section>
-
-                {/* Divider */}
-                <div className="h-10 bg-gray-100 shadow-inner"></div>
-
-                {/* Quantity Section (Step 3) */}
-                <section id="quantity" className="py-16 px-4 max-w-7xl mx-auto">
-                    <h2 className="text-3xl font-extrabold text-red-700 text-center mb-4">3. ระบุจำนวนโต๊ะที่ต้องการ</h2>
-                    <p className="text-center text-gray-600 mb-8">โปรดระบุจำนวนโต๊ะจีน (1 โต๊ะ/10 ท่าน) ที่คุณต้องการจัดเลี้ยง</p>
-
-                    <div className="flex justify-center">
-                        <div className="p-6 bg-white border-4 border-red-700 rounded-xl shadow-lg flex items-center space-x-4">
-                            <button
-                                onClick={() => changeQuantity(-1)}
-                                className="p-3 bg-red-700 text-white rounded-lg font-bold text-2xl hover:bg-red-800 transition duration-150 active:scale-95 disabled:opacity-50"
-                                disabled={tableQuantity <= 1}
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
-                                </svg>
-                            </button>
-                            <span className="text-5xl font-black text-red-800 w-24 text-center">{tableQuantity}</span>
-                            <button
-                                onClick={() => changeQuantity(1)}
-                                className="p-3 bg-red-700 text-white rounded-lg font-bold text-2xl hover:bg-red-800 transition duration-150 active:scale-95"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                                </svg>
-                            </button>
-                            <span className="text-xl font-semibold text-gray-600 ml-4">โต๊ะ</span>
-                        </div>
-                    </div>
-                </section>
-
-                {/* Order Summary Section */}
-                <section id="order-summary" className="py-16 px-4 bg-red-900">
-                    <div className="max-w-xl mx-auto p-6 sm:p-8 bg-red-800 rounded-2xl shadow-[0_0_50px_rgba(255,191,0,0.5)] border-4 border-amber-400">
-                        <h2 className="text-3xl font-bold text-amber-400 text-center mb-6">4. สรุปและดำเนินการสั่งซื้อ</h2>
-                        
-                        {/* Package Price (Per Table) */}
-                        <SummaryLine
-                            label={`แพ็กเกจหลักที่เลือก: ${selectedPackage ? selectedPackage.name : 'ยังไม่ได้เลือก'}`}
-                            value={formatCurrency(packagePrice)}
-                        />
-
-                        {/* Addons Total (Per Table) */}
-                        <SummaryLine
-                            label={`เมนูแอดออนรวม (${selectedAddons.length} รายการ):`}
-                            value={formatCurrency(addonsTotal)}
-                        />
-                        
-                        {/* Grand Total Per Table */}
-                        <SummaryLine
-                            label="ราคารวมต่อโต๊ะ"
-                            value={formatCurrency(grandTotalPerTable)}
-                        />
-
-                        {/* Quantity Applied */}
-                        <div className="flex justify-between items-center py-3 border-b border-white/20 mt-4">
-                            <span className="text-xl text-white font-bold">จำนวนโต๊ะที่สั่ง:</span>
-                            <span className="text-3xl text-amber-200 font-black">{tableQuantity}</span>
-                        </div>
-
-                        {/* FINAL EVENT TOTAL */}
-                        <SummaryLine
-                            label="ราคารวมสำหรับงานจัดเลี้ยงทั้งหมด"
-                            value={formatCurrency(finalEventTotal)}
-                            isTotal={true}
-                        />
-
-                        <p className="text-sm text-white/70 mt-4 text-center">
-                            * ราคานี้คือราคารวมสำหรับ {tableQuantity} โต๊ะ (ประมาณ {tableQuantity * 10} ท่าน) ยังไม่รวมค่าบริการจัดส่งและติดตั้ง
-                        </p>
-                        
-                        <div className="text-center mt-8">
-                            <button
-                                onClick={handleCheckout}
-                                disabled={!selectedPackage || isOrderProcessing || !isAuthReady || user?.isAnonymous}
-                                className={`font-bold px-8 py-3 rounded-xl text-lg transition duration-300 shadow-xl w-full sm:w-auto ${
-                                    (!selectedPackage || isOrderProcessing || !isAuthReady)
-                                    ? 'bg-gray-500 text-white cursor-not-allowed'
-                                    : 'bg-amber-400 text-red-900 hover:bg-amber-500 transform hover:scale-[1.02]'
-                                }`}
-                            >
-                                {isOrderProcessing ? 'กำลังบันทึกคำสั่งซื้อ...' : user?.email ? 'ดำเนินการสั่งซื้อ (บันทึกเข้าระบบ)' : 'กรุณาล็อกอินเพื่อบันทึกคำสั่งซื้อ'}
-                            </button>
-                        </div>
-                        
-                        {!selectedPackage && <p className="text-center text-sm text-amber-300 mt-2">** กรุณาเลือกแพ็กเกจหลักเพื่อดำเนินการ **</p>}
-                    </div>
-                </section>
-                
-                {/* Footer (Simple) */}
-                <footer className="bg-red-950 text-white/60 text-center py-6 text-sm">
-                    <p>&copy; 2024 โต๊ะจีนเจริญมงคล. บริการจัดเลี้ยงโต๊ะจีนพรีเมียม.</p>
-                </footer>
-            </>
-        );
-    };
-
-    // ----------------------------------------------------
-    // 5. Customer Authentication Component
-    // ----------------------------------------------------
-    const CustomerAuth = () => {
+    const CustomerAuth = ({ db, onLoginSuccess, onShowError }) => {
         const [email, setEmail] = useState('');
         const [password, setPassword] = useState('');
-        const [isRegisterMode, setIsRegisterMode] = useState(false);
-        const [localError, setLocalError] = useState('');
+        const [isRegisterMode, setIsRegisterMode] = useState(true);
         const [isLoading, setIsLoading] = useState(false);
-        const [successMessage, setSuccessMessage] = useState('');
+        const [authMessage, setAuthMessage] = useState('');
+        
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        
+        // --- Firestore Customer Handlers ---
 
-        const getFriendlyErrorMessage = (errorCode) => {
-            switch(errorCode) {
-                case 'auth/invalid-email': return 'รูปแบบอีเมลไม่ถูกต้อง';
-                case 'auth/user-disabled': return 'บัญชีผู้ใช้นี้ถูกระงับ';
-                case 'auth/user-not-found': return 'ไม่พบบัญชีผู้ใช้ด้วยอีเมลนี้';
-                case 'auth/wrong-password':
-                case 'auth/invalid-credential': return 'รหัสผ่านไม่ถูกต้อง';
-                case 'auth/email-already-in-use': return 'อีเมลนี้ถูกใช้สมัครไปแล้ว';
-                case 'auth/weak-password': return 'รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร';
-                default: return 'เกิดข้อผิดพลาด: ' + errorCode.replace('auth/', '');
+        const registerCustomer = async () => {
+            if (!db) return;
+            if (!email || !password) {
+                onShowError('กรุณากรอกอีเมลและรหัสผ่านให้ครบถ้วน');
+                return;
             }
-        };
+            if (!emailRegex.test(email)) {
+                onShowError('รูปแบบอีเมลไม่ถูกต้อง');
+                return;
+            }
+            if (password.length < 6) {
+                onShowError('รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร');
+                return;
+            }
 
-        const handleSubmit = async (e) => {
-            e.preventDefault();
-            if (!auth) return;
-
-            setLocalError('');
             setIsLoading(true);
+            setAuthMessage('');
 
             try {
-                if (isRegisterMode) {
-                    await createUserWithEmailAndPassword(auth, email, password);
-                    setSuccessMessage('สมัครสมาชิกสำเร็จ! คุณเข้าสู่ระบบแล้ว');
-                } else {
-                    await signInWithEmailAndPassword(auth, email, password);
-                    setSuccessMessage('ล็อกอินสำเร็จ!');
+                // Check if customer already exists
+                const q = query(collection(db, CUSTOMER_COLLECTION_PATH), where("email", "==", email));
+                const snapshot = await getDocs(q);
+
+                if (!snapshot.empty) {
+                    onShowError('อีเมลนี้ถูกใช้สมัครสมาชิกแล้ว กรุณาล็อกอินแทน');
+                    setIsLoading(false);
+                    return;
                 }
-                // Redirect to order page or dashboard after a short delay
-                setTimeout(() => setAppMode('order'), 1500);
+
+                // If not exists, proceed to register
+                const hashedPassword = hashPassword(password);
+                
+                // Use email as a unique document ID for simplicity in this public collection
+                await setDoc(doc(db, CUSTOMER_COLLECTION_PATH, email), {
+                    email: email,
+                    hashedPassword: hashedPassword,
+                    createdAt: serverTimestamp(),
+                });
+
+                setAuthMessage('สมัครสมาชิกสำเร็จ! กำลังเข้าสู่ระบบ...');
+                onLoginSuccess(email);
+                
             } catch (error) {
-                setLocalError(getFriendlyErrorMessage(error.code));
+                console.error("Firestore register failed:", error);
+                onShowError('เกิดข้อผิดพลาดในการสมัครสมาชิก: ' + error.message);
             } finally {
                 setIsLoading(false);
             }
         };
 
-        const handlePasswordReset = async () => {
-            if (!auth || !email) {
-                setLocalError('กรุณากรอกอีเมลที่ต้องการรีเซ็ตรหัสผ่าน');
+        const signInCustomer = async () => {
+            if (!db) return;
+            if (!email || !password) {
+                onShowError('กรุณากรอกอีเมลและรหัสผ่านให้ครบถ้วน');
                 return;
             }
+            
+            setIsLoading(true);
+            setAuthMessage('');
+            
             try {
-                await sendPasswordResetEmail(auth, email);
-                setSuccessMessage('ส่งอีเมลสำหรับรีเซ็ตรหัสผ่านไปที่ ' + email + ' แล้ว');
-                setLocalError('');
+                // 1. Check if customer exists
+                const docRef = doc(db, CUSTOMER_COLLECTION_PATH, email);
+                const docSnap = await getDocs(query(collection(db, CUSTOMER_COLLECTION_PATH), where("email", "==", email)));
+
+                if (docSnap.empty) {
+                    onShowError('ไม่พบอีเมลนี้ กรุณาสมัครสมาชิกก่อน');
+                    setIsLoading(false);
+                    return;
+                }
+                
+                const customerData = docSnap.docs[0].data();
+                const inputHashedPassword = hashPassword(password);
+
+                // 2. Compare passwords
+                if (inputHashedPassword === customerData.hashedPassword) {
+                    setAuthMessage('ล็อกอินสำเร็จ! กำลังเข้าสู่ระบบ...');
+                    onLoginSuccess(email);
+                } else {
+                    onShowError('รหัสผ่านไม่ถูกต้อง');
+                }
+                
             } catch (error) {
-                setLocalError(getFriendlyErrorMessage(error.code));
+                console.error("Firestore sign in failed:", error);
+                onShowError('เกิดข้อผิดพลาดในการล็อกอิน: ' + error.message);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        const handleSubmit = (e) => {
+            e.preventDefault();
+            if (isRegisterMode) {
+                registerCustomer();
+            } else {
+                signInCustomer();
             }
         };
 
         return (
-            <div className="min-h-screen flex items-center justify-center p-4 bg-gray-100">
-                <div className="w-full max-w-md bg-white p-8 rounded-xl shadow-2xl border-t-8 border-amber-500">
+            <div className="flex items-center justify-center p-4 min-h-[80vh]">
+                <div className="bg-white p-8 rounded-xl shadow-2xl max-w-sm w-full border-t-4 border-amber-500">
                     <h2 className="text-3xl font-extrabold text-red-800 text-center mb-2">
-                        {isRegisterMode ? 'สมัครสมาชิก' : 'เข้าสู่ระบบลูกค้า'}
+                        {isRegisterMode ? 'สมัครสมาชิก' : 'ล็อกอิน'}
                     </h2>
-                    <p className="text-center text-sm text-gray-600 mb-8">
-                        {isRegisterMode ? 'สร้างบัญชีเพื่อติดตามคำสั่งซื้อ' : 'ล็อกอินเพื่อดูประวัติและสถานะคำสั่งซื้อ'}
+                    <p className="text-center text-gray-500 mb-6 text-sm">
+                        {isRegisterMode ? 'สร้างบัญชีเพื่อติดตามคำสั่งซื้อ' : 'เข้าสู่ระบบเพื่อดูประวัติการสั่งซื้อ'}
                     </p>
-                    
-                    <form onSubmit={handleSubmit}>
-                        <div className="mb-5">
-                            <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="customer-email">อีเมล</label>
+
+                    {authMessage && (
+                        <div className="bg-green-100 text-green-800 p-3 rounded-lg text-sm mb-4">
+                            {authMessage}
+                        </div>
+                    )}
+
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div>
+                            <label htmlFor="email" className="block text-sm font-medium text-gray-700">อีเมล</label>
                             <input
-                                id="customer-email"
+                                id="email"
                                 type="email"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition duration-150"
+                                placeholder="name@example.com"
                                 required
+                                className="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-amber-500 focus:border-amber-500 transition duration-150"
                             />
                         </div>
-
-                        <div className="mb-6">
-                            <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="customer-password">รหัสผ่าน</label>
+                        <div>
+                            <label htmlFor="password" className="block text-sm font-medium text-gray-700">รหัสผ่าน</label>
                             <input
-                                id="customer-password"
+                                id="password"
                                 type="password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition duration-150"
+                                placeholder="••••••••"
                                 required
-                                minLength={6}
+                                className="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-amber-500 focus:border-amber-500 transition duration-150"
                             />
                         </div>
-                        
-                        {localError && (
-                            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4 text-sm" role="alert">
-                                {localError}
-                            </div>
-                        )}
-                        
-                        {successMessage && (
-                            <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative mb-4 text-sm" role="alert">
-                                {successMessage}
-                            </div>
-                        )}
 
                         <button
                             type="submit"
-                            disabled={isLoading}
-                            className="w-full bg-amber-500 text-red-900 py-3 rounded-lg font-semibold hover:bg-amber-600 transition duration-200 shadow-md focus:outline-none focus:ring-4 focus:ring-amber-300 disabled:opacity-50"
+                            disabled={isLoading || !db}
+                            className={`w-full flex justify-center items-center px-4 py-3 border border-transparent rounded-lg shadow-sm text-lg font-bold text-white transition duration-300 ${
+                                isLoading ? 'bg-gray-400' : 'bg-amber-500 hover:bg-amber-600'
+                            }`}
                         >
-                            {isLoading ? 'กำลังดำเนินการ...' : isRegisterMode ? 'สมัครสมาชิก' : 'ล็อกอิน'}
+                            {isLoading ? (
+                                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                            ) : (
+                                isRegisterMode ? 'สมัครสมาชิก' : 'ล็อกอิน'
+                            )}
                         </button>
                     </form>
-                    
-                    <div className="flex justify-between items-center mt-4 text-sm">
-                        <button
-                            onClick={() => setIsRegisterMode(prev => !prev)}
-                            className="text-red-600 hover:text-red-800 transition duration-150"
+
+                    <div className="mt-6 text-center">
+                        <button 
+                            onClick={() => setIsRegisterMode(!isRegisterMode)}
+                            className="text-sm font-medium text-red-600 hover:text-red-700"
                         >
                             {isRegisterMode ? 'มีบัญชีอยู่แล้ว? ล็อกอิน' : 'ยังไม่มีบัญชี? สมัครสมาชิก'}
                         </button>
-                        {!isRegisterMode && (
-                            <button
-                                onClick={handlePasswordReset}
-                                className="text-gray-600 hover:text-gray-800 transition duration-150"
-                            >
-                                ลืมรหัสผ่าน?
-                            </button>
-                        )}
                     </div>
-
-                    <div className="text-center mt-6">
-                        <button
+                    <div className="mt-4 text-center">
+                         <button 
                             onClick={() => setAppMode('order')}
-                            className="text-sm text-red-600 hover:text-red-800 transition duration-150"
+                            className="text-sm font-medium text-gray-500 hover:text-gray-700"
                         >
                             กลับสู่หน้าสั่งซื้อ
                         </button>
@@ -733,488 +651,516 @@ export default function App() {
     };
 
     // ----------------------------------------------------
-    // 6. Customer Dashboard Component
+    // 5. Customer Dashboard
     // ----------------------------------------------------
 
-    const CustomerDashboard = () => {
-        const [orders, setOrders] = useState([]);
-        const [isOrdersLoading, setIsOrdersLoading] = useState(true);
-
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const collectionPath = `/artifacts/${appId}/public/data/orders`;
-        
-        // Fetch and listen to orders in real-time
-        useEffect(() => {
-            if (!db || !user?.email) {
-                setIsOrdersLoading(false);
-                return;
-            }
-
-            const ordersCollectionRef = collection(db, collectionPath);
-            // Query only orders that match the current logged-in customer's email
-            const q = query(ordersCollectionRef, where("customerEmail", "==", user.email));
-
-            setIsOrdersLoading(true);
-
-            // Real-time listener
-            const unsubscribe = onSnapshot(q, (snapshot) => {
-                const fetchedOrders = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data(),
-                    // Format timestamp
-                    createdAt: doc.data().createdAt?.toDate ? doc.data().createdAt.toDate().toLocaleString('th-TH') : 'N/A'
-                }));
-                // Sort by creation time (newest first)
-                setOrders(fetchedOrders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
-                setIsOrdersLoading(false);
-            }, (error) => {
-                console.error("Error listening to customer orders:", error);
-                setIsOrdersLoading(false);
-            });
-
-            return () => unsubscribe();
-        }, [db, collectionPath, user?.email]);
-
-
+    const CustomerDashboard = ({ orders, onSignOut }) => {
         return (
-            <div className="min-h-screen bg-gray-50 p-4 sm:p-8">
-                <div className="max-w-7xl mx-auto">
-                    <div className="flex justify-between items-center mb-6">
-                        <div>
-                            <h2 className="text-4xl font-extrabold text-amber-600 mb-1">แดชบอร์ดของฉัน</h2>
-                            <p className="text-gray-600">บัญชี: <span className="font-semibold text-red-700">{user?.email || 'N/A'}</span></p>
-                        </div>
+            <div className="p-4 sm:p-8 max-w-4xl mx-auto">
+                <div className="flex justify-between items-center mb-8">
+                    <h2 className="text-3xl font-extrabold text-red-800">
+                        ยินดีต้อนรับ, {user?.email}
+                    </h2>
+                    <button
+                        onClick={onSignOut}
+                        className="bg-gray-200 text-gray-700 font-medium px-4 py-2 rounded-lg hover:bg-gray-300 transition duration-200 text-sm"
+                    >
+                        ออกจากระบบ
+                    </button>
+                </div>
+
+                <h3 className="text-2xl font-bold text-amber-500 mb-4">รายการสั่งซื้อของคุณ ({orders.length} รายการ)</h3>
+
+                {orders.length === 0 ? (
+                    <div className="bg-gray-50 p-6 rounded-xl text-center border-2 border-dashed border-gray-300">
+                        <p className="text-gray-600">คุณยังไม่มีรายการสั่งซื้อ กรุณาไปที่หน้าสั่งซื้อเพื่อเลือกแพ็กเกจ</p>
                         <button
-                            onClick={handleSignOut}
-                            className="bg-red-700 text-white font-semibold py-2 px-4 rounded-lg hover:bg-red-800 transition duration-150"
+                            onClick={() => setAppMode('order')}
+                            className="mt-4 bg-red-700 text-white font-bold px-4 py-2 rounded-lg hover:bg-red-800 transition duration-300"
                         >
-                            ออกจากระบบ
+                            เริ่มสั่งซื้อ
                         </button>
                     </div>
+                ) : (
+                    <div className="space-y-4">
+                        {orders.map((order) => {
+                            const statusConfig = ORDER_STATUSES[order.status] || ORDER_STATUSES['Pending Contact'];
+                            const packageDetails = packagesData.find(p => p.id === order.packageId)?.name || 'N/A';
+                            const formattedTimestamp = new Date(order.timestamp).toLocaleDateString('th-TH', { 
+                                year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                            });
 
-                    <h3 className="text-2xl font-bold text-red-700 mb-4 border-b pb-2">ประวัติคำสั่งซื้อทั้งหมด</h3>
-                    
-                    {isOrdersLoading ? (
-                        <div className="text-center py-10 text-red-700 font-bold">กำลังโหลดคำสั่งซื้อ...</div>
-                    ) : orders.length === 0 ? (
-                        <div className="text-center py-10 text-gray-500">
-                            <p className="text-xl font-bold">ไม่พบคำสั่งซื้อในบัญชีของคุณ</p>
-                            <p className="mt-2">กลับไปที่หน้าสั่งซื้อเพื่อสร้างคำสั่งซื้อแรกของคุณ!</p>
-                            <button
-                                onClick={() => setAppMode('order')}
-                                className="mt-4 bg-red-700 text-white font-semibold py-2 px-4 rounded-lg hover:bg-red-800 transition duration-150"
-                            >
-                                ไปหน้าสั่งซื้อ
-                            </button>
-                        </div>
-                    ) : (
-                        <div className="space-y-4">
-                            {orders.map((order, index) => (
-                                <div key={order.id} className="bg-white p-6 rounded-xl shadow-lg border-l-8 border-red-700">
-                                    <div className="flex justify-between items-center border-b pb-3 mb-3">
+                            return (
+                                <div key={order.id} className="bg-white p-5 rounded-xl shadow-lg border-l-4 border-amber-500">
+                                    <div className="flex justify-between items-start mb-3">
                                         <div>
-                                            <p className="text-sm font-semibold text-gray-500">คำสั่งซื้อ #{orders.length - index}</p>
-                                            <p className="text-xl font-bold text-red-800">{order.package} ({order.tableQuantity} โต๊ะ)</p>
+                                            <p className="text-xs text-gray-500">รหัสสั่งซื้อ (ID)</p>
+                                            <p className="font-mono text-sm font-semibold text-gray-700">{order.id}</p>
                                         </div>
-                                        <span className={`px-3 py-1 text-sm leading-5 font-semibold rounded-full ${ORDER_STATUSES[order.status]?.color || 'bg-gray-100 text-gray-800'}`}>
-                                            {ORDER_STATUSES[order.status]?.label || order.status}
+                                        <span className={`px-3 py-1 text-xs font-bold rounded-full ${statusConfig.color}`}>
+                                            {statusConfig.label}
                                         </span>
                                     </div>
                                     
-                                    <div className="grid grid-cols-2 gap-4 text-sm">
-                                        <div>
-                                            <p className="text-gray-500">วันที่สั่งซื้อ:</p>
-                                            <p className="font-medium">{order.createdAt}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-gray-500">แอดออน:</p>
-                                            <p className="font-medium">{order.addons.length > 0 ? order.addons.map(a => a.name).join(', ') : 'ไม่มี'}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-gray-500">ราคารวมต่อโต๊ะ:</p>
-                                            <p className="font-medium">{formatCurrency(order.grandTotalPerTable)}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-gray-500">ยอดรวมสุดท้าย:</p>
-                                            <p className="font-extrabold text-red-700 text-lg">{formatCurrency(order.finalEventTotal)}</p>
+                                    <div className="border-t pt-3 mt-3">
+                                        <p className="text-lg font-bold text-red-800 mb-1">{packageDetails} ({order.tableQuantity} โต๊ะ)</p>
+                                        <p className="text-sm text-gray-600 mb-2">สั่งซื้อเมื่อ: {formattedTimestamp}</p>
+                                        <div className="flex justify-between items-center mt-3">
+                                            <span className="text-md text-gray-800 font-semibold">รวม:</span>
+                                            <span className="text-2xl font-extrabold text-red-700">
+                                                {formatCurrency(order.totalAmount)}
+                                            </span>
                                         </div>
                                     </div>
-                                    <p className="text-xs text-gray-400 mt-3 truncate">Order ID: {order.id}</p>
+                                    <p className="text-sm text-amber-600 mt-3">
+                                        {order.status === 'Pending Contact' ? 'รอกำลังทีมงานติดต่อกลับเพื่อยืนยันการจัดงาน' : 
+                                         order.status === 'Confirmed' ? 'ยืนยันการจัดงานแล้ว' : 
+                                         'ดูรายละเอียดเพิ่มเติมจากทีมงาน'}
+                                    </p>
                                 </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            </div>
-        );
-    };
-
-
-    // ----------------------------------------------------
-    // 7. Admin Login Component
-    // ----------------------------------------------------
-
-    const AdminLogin = () => {
-        const [username, setUsername] = useState('');
-        const [password, setPassword] = useState('');
-        
-        const handleSubmit = (e) => {
-            e.preventDefault();
-            handleAdminLogin(username, password);
-        };
-
-        return (
-            <div className="min-h-screen flex items-center justify-center p-4 bg-gray-100">
-                <div className="w-full max-w-md bg-white p-8 rounded-xl shadow-2xl border-t-8 border-red-700">
-                    <h2 className="text-3xl font-extrabold text-red-800 text-center mb-3">เข้าสู่ระบบผู้ดูแลระบบ</h2>
-                    <p className="text-center text-sm text-gray-600 mb-8">User: <code className="font-mono bg-gray-100 p-1 rounded">admin</code> | Pass: <code className="font-mono bg-gray-100 p-1 rounded">1234</code></p>
-                    
-                    <form onSubmit={handleSubmit}>
-                        <div className="mb-5">
-                            <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="admin-username">ชื่อผู้ใช้</label>
-                            <input
-                                id="admin-username"
-                                type="text"
-                                value={username}
-                                onChange={(e) => setUsername(e.target.value)}
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 transition duration-150"
-                                required
-                            />
-                        </div>
-
-                        <div className="mb-6">
-                            <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="admin-password">รหัสผ่าน</label>
-                            <input
-                                id="admin-password"
-                                type="password"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 transition duration-150"
-                                required
-                            />
-                        </div>
-                        
-                        {loginError && (
-                            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4 text-sm" role="alert">
-                                {loginError}
-                            </div>
-                        )}
-
-                        <button
-                            type="submit"
-                            className="w-full bg-red-700 text-white py-3 rounded-lg font-semibold hover:bg-red-800 transition duration-200 shadow-md focus:outline-none focus:ring-4 focus:ring-red-300"
-                        >
-                            เข้าสู่ระบบ
-                        </button>
-                    </form>
-                    
-                    <div className="text-center mt-6">
-                        <button
-                            onClick={() => setAppMode('order')}
-                            className="text-sm text-red-600 hover:text-red-800 transition duration-150"
-                        >
-                            กลับสู่หน้าสั่งซื้อ
-                        </button>
+                            );
+                        })}
                     </div>
-                </div>
+                )}
             </div>
         );
     };
 
     // ----------------------------------------------------
-    // 8. Admin Dashboard Component
+    // 6. Admin Dashboard
     // ----------------------------------------------------
 
-    const AdminDashboard = () => {
-        const [orders, setOrders] = useState([]);
-        const [isOrdersLoading, setIsOrdersLoading] = useState(true);
-        const [filterStatus, setFilterStatus] = useState('All');
+    const AdminDashboard = ({ db, onSignOut }) => {
+        const [allOrders, setAllOrders] = useState([]);
+        const [isOrdersReady, setIsOrdersReady] = useState(false);
 
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const collectionPath = `/artifacts/${appId}/public/data/orders`;
-        
-        // Fetch and listen to orders in real-time
+        // Fetch all orders
         useEffect(() => {
             if (!db) return;
-
-            const ordersCollectionRef = collection(db, collectionPath);
-            const q = query(ordersCollectionRef);
-
-            setIsOrdersLoading(true);
-
-            // Real-time listener
-            const unsubscribe = onSnapshot(q, (snapshot) => {
-                const fetchedOrders = snapshot.docs.map(doc => ({
+            const ordersRef = collection(db, ORDER_COLLECTION_PATH);
+            const unsubscribe = onSnapshot(ordersRef, (snapshot) => {
+                const orders = snapshot.docs.map(doc => ({
                     id: doc.id,
                     ...doc.data(),
-                    // Format timestamp
-                    createdAt: doc.data().createdAt?.toDate ? doc.data().createdAt.toDate().toLocaleString('th-TH') : 'N/A'
+                    timestamp: doc.data().timestamp ? doc.data().timestamp.toDate() : new Date(),
                 }));
-                // Sort by creation time (newest first)
-                setOrders(fetchedOrders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
-                setIsOrdersLoading(false);
+                // Sort by latest order first
+                orders.sort((a, b) => b.timestamp - a.timestamp);
+                setAllOrders(orders);
+                setIsOrdersReady(true);
             }, (error) => {
-                console.error("Error listening to orders:", error);
-                setIsOrdersLoading(false);
+                console.error("Error fetching all orders:", error);
+                setErrorMessage("ไม่สามารถดึงข้อมูลรายการสั่งซื้อทั้งหมดได้");
             });
 
             return () => unsubscribe();
-        }, [db, collectionPath]);
-        
-        // Handlers for Admin actions
-        const updateOrderStatus = useCallback(async (orderId, newStatus) => {
+        }, [db]);
+
+        const handleStatusChange = async (orderId, newStatus) => {
             if (!db) return;
             try {
-                const orderRef = doc(db, collectionPath, orderId);
+                const orderRef = doc(db, ORDER_COLLECTION_PATH, orderId);
                 await updateDoc(orderRef, { status: newStatus });
+                // Success is handled by the onSnapshot listener
             } catch (error) {
                 console.error("Error updating order status:", error);
+                setErrorMessage("เกิดข้อผิดพลาดในการอัปเดตสถานะ: " + error.message);
             }
-        }, [db, collectionPath]);
+        };
 
-        // The actual delete logic
-        const executeDelete = useCallback(async (orderId) => {
-            if (!db) return;
-            try {
-                const orderRef = doc(db, collectionPath, orderId);
-                await deleteDoc(orderRef);
-            } catch (error) {
-                console.error("Error deleting order:", error);
-                setErrorMessage("เกิดข้อผิดพลาดในการลบคำสั่งซื้อ กรุณาลองใหม่อีกครั้ง");
-            }
-        }, [db, collectionPath, setErrorMessage]);
-
-
-        const handleDeleteClick = useCallback((orderId) => {
-            setConfirmation({
-                message: "คุณแน่ใจหรือไม่ที่จะลบคำสั่งซื้อนี้? การดำเนินการนี้ไม่สามารถย้อนกลับได้.",
-                onConfirm: () => executeDelete(orderId),
+        const OrderRow = ({ order }) => {
+            const statusConfig = ORDER_STATUSES[order.status] || ORDER_STATUSES['Pending Contact'];
+            const packageDetails = packagesData.find(p => p.id === order.packageId)?.name || 'N/A';
+            const formattedTimestamp = new Date(order.timestamp).toLocaleDateString('th-TH', { 
+                year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
             });
-        }, [executeDelete, setConfirmation]);
 
-
-        // Filtered orders list
-        const filteredOrders = useMemo(() => {
-            if (filterStatus === 'All') return orders;
-            return orders.filter(order => order.status === filterStatus);
-        }, [orders, filterStatus]);
-
-
-        return (
-            <div className="min-h-screen bg-gray-50 p-4 sm:p-8">
-                <div className="max-w-7xl mx-auto">
-                    <h2 className="text-4xl font-extrabold text-red-800 mb-2">แดชบอร์ดผู้ดูแลระบบ</h2>
-                    <p className="text-gray-600 mb-8">จัดการและตรวจสอบคำสั่งซื้อโต๊ะจีนทั้งหมด</p>
-                    
-                    <div className="flex justify-between items-center mb-6 flex-wrap">
-                        <div className="mb-4 sm:mb-0">
-                            <label htmlFor="status-filter" className="font-medium text-gray-700 mr-3">ตัวกรองสถานะ:</label>
+            return (
+                <div className="bg-white p-4 rounded-lg shadow-sm mb-3 border-l-4 border-red-700">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+                        <div>
+                            <p className="text-xs text-gray-500">รหัส/อีเมลลูกค้า</p>
+                            <p className="font-mono text-sm font-bold text-gray-800 truncate">{order.id.substring(0, 8)}...</p>
+                            <p className="text-xs text-red-600 font-medium truncate">{order.customerEmail}</p>
+                        </div>
+                        <div>
+                            <p className="text-xs text-gray-500">รายละเอียด</p>
+                            <p className="text-sm text-gray-800">{packageDetails} ({order.tableQuantity} โต๊ะ)</p>
+                            <p className="text-xs text-gray-500">สั่งซื้อ: {formattedTimestamp}</p>
+                        </div>
+                        <div>
+                            <p className="text-xs text-gray-500">มูลค่า</p>
+                            <p className="text-lg font-extrabold text-amber-600">{formatCurrency(order.totalAmount)}</p>
+                        </div>
+                        <div>
+                            <p className="text-xs text-gray-500">สถานะ</p>
                             <select
-                                id="status-filter"
-                                value={filterStatus}
-                                onChange={(e) => setFilterStatus(e.target.value)}
-                                className="p-2 border border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"
+                                value={order.status}
+                                onChange={(e) => handleStatusChange(order.id, e.target.value)}
+                                className={`mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm rounded-md ${statusConfig.color}`}
                             >
-                                <option value="All">ทั้งหมด ({orders.length})</option>
-                                {Object.keys(ORDER_STATUSES).map(statusKey => (
-                                    <option key={statusKey} value={statusKey}>
-                                        {ORDER_STATUSES[statusKey].label} ({orders.filter(o => o.status === statusKey).length})
+                                {Object.keys(ORDER_STATUSES).map(key => (
+                                    <option key={key} value={key} className={ORDER_STATUSES[key].color}>
+                                        {ORDER_STATUSES[key].label}
                                     </option>
                                 ))}
                             </select>
                         </div>
-                        <button
-                            onClick={handleSignOut}
-                            className="bg-gray-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-600 transition duration-150"
-                        >
-                            ออกจากระบบ
-                        </button>
                     </div>
+                </div>
+            );
+        };
+        
+        return (
+            <div className="p-4 sm:p-8 max-w-6xl mx-auto">
+                <div className="flex justify-between items-center mb-8">
+                    <h2 className="text-3xl font-extrabold text-red-800">
+                        แผงควบคุมผู้ดูแลระบบ (Admin Dashboard)
+                    </h2>
+                    <button
+                        onClick={onSignOut}
+                        className="bg-red-700 text-white font-medium px-4 py-2 rounded-lg hover:bg-red-800 transition duration-200 text-sm"
+                    >
+                        ออกจากระบบ
+                    </button>
+                </div>
 
-                    {isOrdersLoading ? (
-                        <div className="text-center py-10 text-red-700 font-bold">กำลังโหลดคำสั่งซื้อ...</div>
-                    ) : filteredOrders.length === 0 ? (
-                        <div className="text-center py-10 text-gray-500">
-                            <p className="text-xl font-bold">ไม่พบคำสั่งซื้อในสถานะ {filterStatus === 'All' ? 'ใดๆ' : ORDER_STATUSES[filterStatus]?.label}</p>
-                            <p className="mt-2">ลองเปลี่ยนตัวกรองสถานะ หรือรอคำสั่งซื้อใหม่</p>
+                <h3 className="text-2xl font-bold text-amber-500 mb-4">รายการสั่งซื้อทั้งหมด ({allOrders.length})</h3>
+
+                {!isOrdersReady ? (
+                    <div className="text-center p-10 text-gray-500">
+                        <svg className="animate-spin h-8 w-8 text-amber-500 mx-auto mb-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        กำลังโหลดข้อมูล...
+                    </div>
+                ) : allOrders.length === 0 ? (
+                    <div className="bg-gray-50 p-6 rounded-xl text-center border-2 border-dashed border-gray-300">
+                        <p className="text-gray-600">ยังไม่มีรายการสั่งซื้อใด ๆ</p>
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        {allOrders.map(order => <OrderRow key={order.id} order={order} />)}
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    // ----------------------------------------------------
+    // 7. Render Logic
+    // ----------------------------------------------------
+    
+    // Header component
+    const Header = ({ currentMode, user, userId, onSetMode, isAdminLoggedIn, onSignOut }) => {
+        const isCustomerLoggedIn = user && user.email;
+        let modeLabel = 'สั่งซื้อ';
+        let authButton = (
+             <button onClick={() => onSetMode('customer-auth')} className="bg-red-700 text-white font-bold px-4 py-2 rounded-lg hover:bg-red-800 transition duration-200 text-sm sm:text-base ml-2">
+                ล็อกอิน/สมัคร
+            </button>
+        );
+
+        if (isCustomerLoggedIn) {
+            modeLabel = 'แดชบอร์ดลูกค้า';
+            authButton = (
+                <button onClick={() => onSetMode('customer-dashboard')} className="bg-amber-500 text-white font-bold px-4 py-2 rounded-lg hover:bg-amber-600 transition duration-200 text-sm sm:text-base ml-2">
+                    ดูคำสั่งซื้อ
+                </button>
+            );
+        } else if (isAdminLoggedIn) {
+            modeLabel = 'แดชบอร์ดผู้ดูแล';
+            authButton = (
+                 <button onClick={onSignOut} className="bg-red-700 text-white font-bold px-4 py-2 rounded-lg hover:bg-red-800 transition duration-200 text-sm sm:text-base ml-2">
+                    ออกจากระบบ
+                </button>
+            );
+        }
+
+        return (
+            <header className="bg-red-800 text-white shadow-lg p-3 sm:px-6 flex justify-between items-center sticky top-0 z-50">
+                <div className="flex items-center">
+                    <h1 className="text-xl sm:text-2xl font-black mr-4 cursor-pointer" onClick={() => onSetMode('order')}>
+                        โต๊ะจีน เจริญมงคล
+                    </h1>
+                </div>
+                <div className="flex items-center space-x-2">
+                    <div className="hidden sm:flex text-xs font-semibold bg-red-700 px-3 py-1 rounded-full items-center">
+                        ID: <span className="font-mono text-amber-400 ml-1">{userId ? userId.substring(0, 8) + '...' : 'Loading...'} ({isCustomerLoggedIn ? 'Customer' : 'Anon'})</span>
+                    </div>
+                    {authButton}
+                    <button 
+                        onClick={() => onSetMode('admin-login')}
+                        className="bg-red-900 text-white font-bold px-4 py-2 rounded-lg hover:bg-red-700 transition duration-200 text-sm sm:text-base"
+                    >
+                        Admin
+                    </button>
+                </div>
+            </header>
+        );
+    };
+
+    // Main Order Page Component
+    const OrderPage = () => {
+        const selectedPackage = packagesData.find(pkg => pkg.id === selectedPackageId);
+
+        return (
+             <div className="min-h-screen bg-gray-50">
+                <div className="p-4 sm:p-8 max-w-6xl mx-auto">
+                    {/* --- 1. Package Selection --- */}
+                    <section className="mb-12">
+                        <h2 className="text-3xl font-extrabold text-red-800 mb-6 border-b-2 pb-2 border-red-200">
+                            1. เลือกแพ็กเกจอาหารโต๊ะจีน
+                        </h2>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {packagesData.map(pkg => (
+                                <PackageCard
+                                    key={pkg.id}
+                                    pkg={pkg}
+                                    isSelected={pkg.id === selectedPackageId}
+                                    onSelect={setSelectedPackageId}
+                                />
+                            ))}
                         </div>
-                    ) : (
-                        <div className="bg-white shadow-xl rounded-xl overflow-x-auto">
-                            <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-red-50">
-                                    <tr>
-                                        <th className="px-4 py-3 text-left text-xs font-bold text-red-700 uppercase tracking-wider">ID / ลูกค้า</th>
-                                        <th className="px-4 py-3 text-left text-xs font-bold text-red-700 uppercase tracking-wider">รายละเอียด</th>
-                                        <th className="px-4 py-3 text-left text-xs font-bold text-red-700 uppercase tracking-wider">จำนวนโต๊ะ</th>
-                                        <th className="px-4 py-3 text-left text-xs font-bold text-red-700 uppercase tracking-wider">ยอดรวม</th>
-                                        <th className="px-4 py-3 text-left text-xs font-bold text-red-700 uppercase tracking-wider">สถานะ</th>
-                                        <th className="px-4 py-3 text-left text-xs font-bold text-red-700 uppercase tracking-wider">ดำเนินการ</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
-                                    {filteredOrders.map((order) => (
-                                        <tr key={order.id} className="hover:bg-gray-50 transition duration-100">
-                                            <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                <div className="font-mono text-xs bg-gray-100 p-1 rounded inline-block mb-1">{order.id}</div>
-                                                <div className="text-xs text-red-700 font-semibold mt-1">Email: {order.customerEmail || 'Anon'}</div>
-                                                <div className="text-xs text-gray-500">วันที่: {order.createdAt}</div>
-                                            </td>
-                                            <td className="px-4 py-4 text-sm text-gray-600">
-                                                <p className="font-semibold text-red-700">{order.package}</p>
-                                                <p className="text-xs text-gray-500">แอดออน: {order.addons.length > 0 ? order.addons.map(a => a.name).join(', ') : '-'}</p>
-                                            </td>
-                                            <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 font-bold">{order.tableQuantity}</td>
-                                            <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-green-700">{formatCurrency(order.finalEventTotal)}</td>
-                                            <td className="px-4 py-4 whitespace-nowrap text-sm">
-                                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${ORDER_STATUSES[order.status]?.color || 'bg-gray-100 text-gray-800'}`}>
-                                                    {ORDER_STATUSES[order.status]?.label || order.status}
-                                                </span>
-                                                <select
-                                                    value={order.status}
-                                                    onChange={(e) => updateOrderStatus(order.id, e.target.value)}
-                                                    className="mt-1 block w-full text-xs p-1 border border-gray-300 rounded-md focus:ring-red-500 focus:border-red-500"
-                                                >
-                                                    {Object.keys(ORDER_STATUSES).map(statusKey => (
-                                                        <option key={statusKey} value={statusKey}>{ORDER_STATUSES[statusKey].label}</option>
-                                                    ))}
-                                                </select>
-                                            </td>
-                                            <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                                <button
-                                                    onClick={() => handleDeleteClick(order.id)}
-                                                    className="text-red-600 hover:text-red-900 transition duration-150"
-                                                >
-                                                    ลบ
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                    </section>
+
+                    {/* --- 2. Addons Selection (Conditional) --- */}
+                    {selectedPackageId && (
+                        <section className="mb-12 p-6 bg-white rounded-xl shadow-lg">
+                            <h2 className="text-3xl font-extrabold text-red-800 mb-6 border-b-2 pb-2 border-red-200">
+                                2. เมนูเสริม (เลือกได้ตามต้องการ)
+                            </h2>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {addonsData.map(addon => (
+                                    <AddonCard
+                                        key={addon.id}
+                                        addon={addon}
+                                        isSelected={selectedAddons.includes(addon.id)}
+                                        onToggle={handleToggleAddon}
+                                    />
+                                ))}
+                            </div>
+                        </section>
+                    )}
+
+                    {/* --- 3. Quantity & Summary --- */}
+                    {selectedPackageId && (
+                        <section className="mb-12 p-6 bg-red-800 rounded-xl shadow-2xl">
+                            <h2 className="text-3xl font-extrabold text-amber-400 mb-6 border-b-2 pb-2 border-red-500">
+                                3. สรุปรายการสั่งซื้อและจำนวน
+                            </h2>
+                            
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-4 sm:space-y-0 sm:space-x-8 mb-6">
+                                <div className="flex items-center space-x-4 w-full sm:w-auto">
+                                    <label htmlFor="tables" className="text-xl font-bold text-white flex-shrink-0">
+                                        จำนวนโต๊ะ:
+                                    </label>
+                                    <input
+                                        id="tables"
+                                        type="number"
+                                        min="1"
+                                        value={tableQuantity}
+                                        onChange={(e) => setTableQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                                        className="w-24 text-center px-3 py-2 border border-gray-300 rounded-lg shadow-sm text-lg font-bold text-gray-800"
+                                    />
+                                </div>
+
+                                <div className="text-right w-full sm:w-auto">
+                                     <p className="text-white font-medium text-sm">แพ็กเกจ: {selectedPackage ? selectedPackage.name : 'N/A'}</p>
+                                </div>
+                            </div>
+                            
+                            <div className="space-y-2">
+                                <SummaryLine 
+                                    label="ราคาแพ็กเกจต่อโต๊ะ" 
+                                    value={formatCurrency(calculateTotal.packagePrice)}
+                                />
+                                <SummaryLine 
+                                    label={`ราคาเมนูเสริม (${selectedAddons.length} รายการ) ต่อโต๊ะ`} 
+                                    value={formatCurrency(calculateTotal.totalAddons)}
+                                />
+                                <SummaryLine 
+                                    label="ยอดรวมต่อโต๊ะ" 
+                                    value={formatCurrency(calculateTotal.grandTotalPerTable)}
+                                />
+                                <SummaryLine 
+                                    label={`ยอดรวมทั้งหมดสำหรับ ${tableQuantity} โต๊ะ`} 
+                                    value={formatCurrency(calculateTotal.finalEventTotal)}
+                                    isTotal={true}
+                                />
+                            </div>
+
+                            <button
+                                onClick={handlePlaceOrder}
+                                disabled={isOrderProcessing || !db || !isAuthReady}
+                                className={`w-full mt-8 flex justify-center items-center px-4 py-4 border border-transparent rounded-lg shadow-lg text-xl font-black text-red-800 transition duration-300 ${
+                                    isOrderProcessing || !db || !isAuthReady ? 'bg-gray-400' : 'bg-amber-400 hover:bg-amber-300'
+                                }`}
+                            >
+                                {isOrderProcessing ? (
+                                    <>
+                                        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-red-800" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        กำลังดำเนินการสั่งซื้อ...
+                                    </>
+                                ) : (user && user.email) ? (
+                                    `สั่งซื้อเลย! (${formatCurrency(calculateTotal.finalEventTotal)})`
+                                ) : (
+                                    `เข้าสู่ระบบเพื่อสั่งซื้อ (${formatCurrency(calculateTotal.finalEventTotal)})`
+                                )}
+                            </button>
+                            {!isAuthReady && <p className="text-center text-sm text-red-400 mt-2">กำลังโหลดระบบ...</p>}
+                            {!(user && user.email) && <p className="text-center text-sm text-red-400 mt-2">หมายเหตุ: ต้องทำการล็อกอิน/สมัครสมาชิกก่อนจึงจะสามารถยืนยันการสั่งซื้อได้</p>}
+                        </section>
                     )}
                 </div>
             </div>
         );
     };
 
-    // ----------------------------------------------------
-    // 9. Main Render Logic
-    // ----------------------------------------------------
+    let content;
 
-    const renderContent = () => {
-        if (appMode === 'customer-auth') {
-            return <CustomerAuth />;
+    if (!isAuthReady) {
+        content = (
+            <div className="flex justify-center items-center h-screen">
+                <p className="text-xl text-gray-500">
+                    <svg className="animate-spin h-6 w-6 text-red-800 inline mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    กำลังเชื่อมต่อระบบ...
+                </p>
+            </div>
+        );
+    } else {
+        switch (appMode) {
+            case 'customer-auth':
+                content = <CustomerAuth db={db} onLoginSuccess={setCustomerLoggedIn} onShowError={setErrorMessage} />;
+                break;
+            case 'customer-dashboard':
+                content = <CustomerDashboard orders={customerOrders} onSignOut={handleSignOut} />;
+                break;
+            case 'admin-login':
+                content = <AdminAuth onLogin={handleAdminLogin} error={loginError} onCancel={() => setAppMode('order')} />;
+                break;
+            case 'admin-dashboard':
+                content = <AdminDashboard db={db} onSignOut={handleSignOut} />;
+                break;
+            case 'order':
+            default:
+                content = <OrderPage />;
+                break;
         }
-        if (appMode === 'customer-dashboard' && user?.email) {
-            return <CustomerDashboard />;
-        }
-        if (appMode === 'admin-login') {
-            return <AdminLogin />;
-        }
-        if (appMode === 'admin-dashboard' && isAdminLoggedIn) {
-            return <AdminDashboard />;
-        }
-        // Default mode
-        return <TohChinOrderApp />;
-    };
-
-
-    // ----------------------------------------------------
-    // 10. Top-Level UI (Navigation)
-    // ----------------------------------------------------
+    }
 
     return (
-        <div className="min-h-screen bg-orange-50 font-sans">
-            {/* Custom Dialogs */}
+        <div className="min-h-screen bg-gray-50 font-sans">
+            <style>{`
+                @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@100;300;400;700;900&display=swap');
+                body { font-family: 'Kanit', sans-serif; }
+                h1, h2, h3, h4, .font-black { font-family: 'Kanit', sans-serif; }
+            `}</style>
+            
+            <Header 
+                currentMode={appMode} 
+                user={user} 
+                userId={userId} 
+                onSetMode={setAppMode} 
+                isAdminLoggedIn={isAdminLoggedIn} 
+                onSignOut={handleSignOut}
+            />
+
+            <main className="pt-2">
+                {content}
+            </main>
+            
             <CustomAlertDialog 
                 message={errorMessage} 
                 onClose={() => setErrorMessage('')} 
             />
+            
             <CustomConfirmDialog 
                 config={confirmation} 
-                onCancel={() => setConfirmation(null)}
+                onCancel={() => setConfirmation(null)} 
             />
             
-            {/* Navigation Bar (Simple) */}
-            <nav className="sticky top-0 z-50 bg-red-800 shadow-lg p-4 flex justify-between items-center">
-                <a href="#" className="text-2xl font-extrabold text-white tracking-wider" onClick={() => setAppMode('order')}>
-                    โต๊ะจีน <span className="text-amber-400">เจริญมงคล</span>
-                </a>
-                
-                <div className="flex items-center space-x-4">
-                    {/* Customer Status Area */}
-                    {user?.email ? (
-                        <div className="flex items-center space-x-2">
-                            <span className="text-xs font-semibold bg-red-700 text-amber-400 p-1 px-2 rounded-md truncate max-w-[100px] sm:max-w-none" title={user.email}>
-                                ลูกค้า: {user.email}
-                            </span>
-                            <button 
-                                onClick={() => setAppMode('customer-dashboard')}
-                                className="text-xs font-bold text-amber-400 hover:text-amber-300"
-                            >
-                                แดชบอร์ด
-                            </button>
-                        </div>
-                    ) : (
-                         <span className="text-xs font-mono bg-red-700 text-amber-400 p-1 rounded-md max-w-[100px] sm:max-w-none truncate" title={userId}>
-                            ID: {userId ? `${userId.substring(0, 5)}...` : 'N/A'} (Anon)
-                        </span>
-                    )}
-
-                    {/* Customer Auth Button */}
-                    {!user?.email && (
-                        <button 
-                            onClick={() => setAppMode('customer-auth')}
-                            className="bg-amber-400 text-red-900 hover:bg-amber-500 transition duration-200 px-3 py-2 rounded-lg text-sm font-bold"
-                        >
-                            ล็อกอิน/สมัคร
-                        </button>
-                    )}
-                    
-                    {/* Admin Toggle/Logout Button */}
-                    {appMode === 'admin-dashboard' ? (
-                         <button 
-                            onClick={handleSignOut}
-                            className="bg-gray-500 text-white hover:bg-gray-600 transition duration-200 px-3 py-2 rounded-lg text-sm font-medium"
-                        >
-                            ออกจากระบบ (Admin)
-                        </button>
-                    ) : appMode !== 'admin-login' && (
-                        <button 
-                            onClick={() => setAppMode('admin-login')}
-                            className="bg-red-600 text-white hover:bg-red-500 transition duration-200 px-3 py-2 rounded-lg text-sm font-medium"
-                        >
-                            Admin
-                        </button>
-                    )}
-
-                    {/* Mobile Menu Toggle (Only in Order Mode) */}
-                    {appMode === 'order' && (
-                        <button
-                            className="md:hidden text-white"
-                            onClick={() => setIsMenuOpen(!isMenuOpen)}
-                        >
-                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={isMenuOpen ? "M6 18L18 6M6 6l12 12" : "M4 6h16M4 12h16m-7 6h7"}></path>
-                            </svg>
-                        </button>
-                    )}
-                </div>
-
-                {/* Mobile Menu Content (Only in Order Mode) */}
-                <div className={`absolute md:hidden w-full left-0 top-full bg-red-800 transition-all duration-300 ${isMenuOpen && appMode === 'order' ? 'flex flex-col' : 'hidden'}`}>
-                    <a href="#packages" onClick={() => setIsMenuOpen(false)} className="text-white hover:text-amber-400 px-4 py-2 text-sm font-medium">แพ็กเกจ</a>
-                    <a href="#addons" onClick={() => setIsMenuOpen(false)} className="text-white hover:text-amber-400 px-4 py-2 text-sm font-medium">แอดออน</a>
-                    <a href="#quantity" onClick={() => setIsMenuOpen(false)} className="text-white hover:text-amber-400 px-4 py-2 text-sm font-medium">จำนวนโต๊ะ</a>
-                    <a href="#order-summary" onClick={() => setIsMenuOpen(false)} className="bg-amber-400 text-red-900 font-bold px-4 py-2 rounded-lg text-sm transition duration-200 m-2 hover:bg-amber-500 text-center">
-                        สรุปราคา
-                    </a>
-                </div>
-            </nav>
-
-            {/* Main Content Render */}
-            {renderContent()}
+            <PaymentModal />
         </div>
     );
 }
+
+// ----------------------------------------------------
+// Admin Login Component
+// ----------------------------------------------------
+
+const AdminAuth = ({ onLogin, error, onCancel }) => {
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        onLogin(username, password);
+    };
+
+    return (
+        <div className="flex items-center justify-center p-4 min-h-[80vh]">
+            <div className="bg-white p-8 rounded-xl shadow-2xl max-w-sm w-full border-t-4 border-red-800">
+                <h2 className="text-3xl font-extrabold text-red-800 text-center mb-6">
+                    เข้าสู่ระบบผู้ดูแล
+                </h2>
+
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                        <label htmlFor="admin-user" className="block text-sm font-medium text-gray-700">ชื่อผู้ใช้</label>
+                        <input
+                            id="admin-user"
+                            type="text"
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
+                            placeholder="admin"
+                            required
+                            className="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-red-500 focus:border-red-500 transition duration-150"
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="admin-password" className="block text-sm font-medium text-gray-700">รหัสผ่าน</label>
+                        <input
+                            id="admin-password"
+                            type="password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            placeholder="••••••••"
+                            required
+                            className="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-red-500 focus:border-red-500 transition duration-150"
+                        />
+                    </div>
+
+                    {error && (
+                        <div className="bg-red-100 text-red-800 p-3 rounded-lg text-sm">
+                            {error}
+                        </div>
+                    )}
+
+                    <button
+                        type="submit"
+                        className="w-full flex justify-center items-center px-4 py-3 border border-transparent rounded-lg shadow-sm text-lg font-bold text-white bg-red-800 hover:bg-red-700 transition duration-300"
+                    >
+                        ล็อกอิน
+                    </button>
+                </form>
+
+                <div className="mt-6 text-center">
+                    <button 
+                        onClick={onCancel}
+                        className="text-sm font-medium text-gray-500 hover:text-gray-700"
+                    >
+                        กลับสู่หน้าสั่งซื้อ
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
