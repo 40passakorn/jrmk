@@ -1,0 +1,706 @@
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from 'firebase/auth';
+import { getFirestore, doc, setDoc, collection, serverTimestamp, onSnapshot, query, where, updateDoc, deleteDoc, getDocs } from 'firebase/firestore';
+
+// ----------------------------------------------------
+// Utility for Firestore-based Password Hashing
+// ----------------------------------------------------
+const HASH_SALT = 'TohChinSecretSalt123';
+const hashPassword = (password) => {
+    const combined = password + HASH_SALT;
+    return btoa(combined).substring(0, 100); 
+};
+
+// ----------------------------------------------------
+// 1. Data Definitions
+// ----------------------------------------------------
+
+const packagesData = [
+    { id: 'standard', name: 'มงคล (Standard)', price: 3990, features: ['เมนูเริ่มต้น 8 อย่าง', 'เครื่องดื่มสมุนไพร', 'บริการตกแต่งดอกไม้ (ไม่มี)'] },
+    { id: 'premium', name: 'มั่งคั่ง (Premium)', price: 5990, features: ['เมนูพรีเมียม 10 อย่าง', 'เครื่องดื่มซอฟต์ดริงค์/น้ำสมุนไพรไม่อั้น', 'ฟรี! บริการตกแต่งดอกไม้'], isRecommended: true },
+    { id: 'exclusive', name: 'จักรพรรดิ (Exclusive)', price: 7990, features: ['เมนูซิกเนเจอร์ 12 อย่าง (ปรับได้)', 'เครื่องดื่มและมิกเซอร์ครบชุด', 'ที่ปรึกษาการจัดเลี้ยงส่วนตัว'] },
+];
+
+const addonsData = [
+    { id: 'addon1', name: 'ข้าวผัดหยางโจว', price: 450, description: 'ข้าวหอมมะลิผัดกับกุ้ง หมูแดง และเครื่องเทศอย่างลงตัว' },
+    { id: 'addon2', name: 'ซุปเสฉวนรสเผ็ด', price: 550, description: 'ซุปร้อนๆ รสชาติเผ็ดเปรี้ยว กลมกล่อม สไตล์เสฉวนแท้ๆ' },
+    { id: 'addon3', name: 'ขาหมูยัดไส้ (หนึ่งขา)', price: 1500, description: 'ขาหมูตุ๋นจนเปื่อยนุ่ม ยัดไส้ด้วยเห็ดหอมและสมุนไพรจีน' },
+    { id: 'addon4', name: 'สลัดกุ้งมังกร (พรีเมียม)', price: 4500, description: 'เมนูพิเศษสำหรับงานหรูหรา กุ้งมังกรสดๆ เสิร์ฟพร้อมน้ำสลัดสูตรเฉพาะ' },
+];
+
+// Bank Data for Payment
+const banksData = [
+    { id: 'kbank', name: 'ธนาคารกสิกรไทย', color: 'bg-green-600', accName: 'บจก. เจริญมงคล', accNo: '000-1-23456-7' },
+    { id: 'scb', name: 'ธนาคารไทยพาณิชย์', color: 'bg-purple-600', accName: 'บจก. เจริญมงคล', accNo: '111-2-34567-8' },
+    { id: 'ktb', name: 'ธนาคารกรุงไทย', color: 'bg-blue-500', accName: 'บจก. เจริญมงคล', accNo: '222-3-45678-9' },
+];
+
+const formatCurrency = (num) => num.toLocaleString('th-TH') + '.-';
+
+const ADMIN_USERNAME = 'admin';
+const ADMIN_PASSWORD = '1234';
+
+const ORDER_STATUSES = {
+    'Pending Payment': { label: 'รอชำระเงิน', color: 'bg-gray-100 text-gray-800' },
+    'Paid': { label: 'ชำระเงินแล้ว', color: 'bg-green-100 text-green-800' }, // New Status
+    'Confirmed': { label: 'ยืนยันการจัดงาน', color: 'bg-blue-100 text-blue-800' },
+    'Canceled': { label: 'ยกเลิก', color: 'bg-red-100 text-red-800' },
+    'Completed': { label: 'จัดงานเสร็จสิ้น', color: 'bg-gray-800 text-white' },
+};
+
+// ----------------------------------------------------
+// 2. Main App Component
+// ----------------------------------------------------
+
+export default function App() {
+    // Firebase States
+    const [db, setDb] = useState(null);
+    const [auth, setAuth] = useState(null);
+    const [user, setUser] = useState(null); 
+    const [userId, setUserId] = useState(null);
+    const [isAuthReady, setIsAuthReady] = useState(false);
+    
+    // UI Mode State
+    const [appMode, setAppMode] = useState('order');
+    const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
+    const [loginError, setLoginError] = useState('');
+
+    // Order & UI States
+    const [selectedPackageId, setSelectedPackageId] = useState(null);
+    const [selectedAddons, setSelectedAddons] = useState([]);
+    const [tableQuantity, setTableQuantity] = useState(1);
+    const [isOrderProcessing, setIsOrderProcessing] = useState(false);
+    
+    const [isPaymentSelectionOpen, setIsPaymentSelectionOpen] = useState(false); // NEW: Payment Selection Modal
+    const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false); // Renamed from isPaymentModalOpen
+    const [customerOrders, setCustomerOrders] = useState([]);
+
+    const [errorMessage, setErrorMessage] = useState('');
+    const [confirmation, setConfirmation] = useState(null); 
+    
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+    const CUSTOMER_COLLECTION_PATH = `/artifacts/${appId}/public/data/customers`;
+    const ORDER_COLLECTION_PATH = `/artifacts/${appId}/public/data/orders`;
+
+    // --- Firebase Initialization ---
+    useEffect(() => {
+        const initFirebase = async () => {
+            if (typeof __firebase_config === 'undefined' || typeof __app_id === 'undefined') {
+                console.error("Firebase configuration variables are missing.");
+                setIsAuthReady(true);
+                return;
+            }
+
+            try {
+                const firebaseConfig = JSON.parse(__firebase_config);
+                const app = initializeApp(firebaseConfig);
+                const firestoreDb = getFirestore(app);
+                const firebaseAuth = getAuth(app);
+
+                setDb(firestoreDb);
+                setAuth(firebaseAuth);
+
+                onAuthStateChanged(firebaseAuth, async (currentUser) => {
+                    if (currentUser) {
+                        setUser(currentUser);
+                        setUserId(currentUser.uid);
+                    } else if (typeof __initial_auth_token !== 'undefined') {
+                        try {
+                            const result = await signInWithCustomToken(firebaseAuth, __initial_auth_token);
+                            setUser(result.user);
+                            setUserId(result.user.uid);
+                        } catch (error) {
+                            const result = await signInAnonymously(firebaseAuth);
+                            setUser(result.user);
+                            setUserId(result.user.uid);
+                        }
+                    } else {
+                        const result = await signInAnonymously(firebaseAuth);
+                        setUser(result.user);
+                        setUserId(result.user.uid);
+                    }
+                    setIsAuthReady(true);
+                });
+            } catch (error) {
+                console.error("Firebase initialization failed:", error);
+                setIsAuthReady(true);
+            }
+        };
+
+        initFirebase();
+    }, []);
+
+    // Fetch customer orders
+    useEffect(() => {
+        if (!db || !isAuthReady || !user || user.isAnonymous || !user.email) {
+            setCustomerOrders([]);
+            return;
+        }
+
+        const ordersQuery = query(
+            collection(db, ORDER_COLLECTION_PATH),
+            where("customerEmail", "==", user.email)
+        );
+
+        const unsubscribe = onSnapshot(ordersQuery, (snapshot) => {
+            const orders = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                timestamp: doc.data().timestamp ? doc.data().timestamp.toDate() : new Date(),
+            }));
+            orders.sort((a, b) => b.timestamp - a.timestamp);
+            setCustomerOrders(orders);
+        }, (error) => {
+            console.error("Error fetching customer orders:", error);
+            setErrorMessage("ไม่สามารถดึงข้อมูลรายการสั่งซื้อของลูกค้าได้");
+        });
+
+        return () => unsubscribe();
+    }, [db, isAuthReady, user, ORDER_COLLECTION_PATH]);
+
+    const setCustomerLoggedIn = (email) => {
+        setUser(prevUser => ({
+            ...prevUser,
+            email: email,
+            isAnonymous: false,
+        }));
+        setAppMode('customer-dashboard');
+    };
+
+    const handleAdminLogin = (username, password) => {
+        if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+            setIsAdminLoggedIn(true);
+            setAppMode('admin-dashboard');
+            setLoginError('');
+        } else {
+            setLoginError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+        }
+    };
+
+    const handleSignOut = () => {
+        if (user && !user.isAnonymous) {
+            setUser(prevUser => ({
+                ...prevUser,
+                email: undefined,
+                isAnonymous: true,
+            }));
+            setAppMode('order');
+            setIsAdminLoggedIn(false);
+        } else {
+            if (auth) {
+                signOut(auth).then(() => {
+                    setIsAdminLoggedIn(false);
+                    setAppMode('order');
+                }).catch(console.error);
+            }
+        }
+    };
+    
+    const handleToggleAddon = (addonId) => {
+        setSelectedAddons(prev => 
+            prev.includes(addonId) ? prev.filter(id => id !== addonId) : [...prev, addonId]
+        );
+    };
+
+    const calculateTotal = useMemo(() => {
+        const selectedPackage = packagesData.find(pkg => pkg.id === selectedPackageId);
+        const packagePrice = selectedPackage ? selectedPackage.price : 0;
+
+        const totalAddons = selectedAddons.reduce((sum, addonId) => {
+            const addon = addonsData.find(a => a.id === addonId);
+            return sum + (addon ? addon.price : 0);
+        }, 0);
+
+        const grandTotalPerTable = packagePrice + totalAddons;
+        const finalEventTotal = grandTotalPerTable * tableQuantity;
+
+        return { packagePrice, totalAddons, grandTotalPerTable, finalEventTotal };
+    }, [selectedPackageId, selectedAddons, tableQuantity]);
+
+    // Step 1: Initialize Order (Validate & Open Payment Modal)
+    const handleInitOrder = () => {
+        if (!selectedPackageId) {
+            setErrorMessage('กรุณาเลือกแพ็กเกจอาหารก่อนดำเนินการสั่งซื้อ');
+            return;
+        }
+        if (!user || user.isAnonymous || !user.email) {
+            setAppMode('customer-auth');
+            return;
+        }
+        // Open Payment Selection instead of confirming immediately
+        setIsPaymentSelectionOpen(true);
+    };
+
+    // Step 2: Finalize Order after Payment
+    const handleConfirmPayment = async (bankId) => {
+        setIsOrderProcessing(true);
+        try {
+            const orderData = {
+                customerEmail: user.email,
+                tableQuantity: tableQuantity,
+                packageId: selectedPackageId,
+                addonIds: selectedAddons,
+                totalAmount: calculateTotal.finalEventTotal,
+                paymentBank: bankId, // Store selected bank
+                status: 'Paid', // Mark as Paid immediately
+                timestamp: serverTimestamp(),
+            };
+            
+            await setDoc(doc(collection(db, ORDER_COLLECTION_PATH)), orderData);
+            
+            setIsOrderProcessing(false);
+            setIsPaymentSelectionOpen(false); // Close payment modal
+            setIsSuccessModalOpen(true); // Open success modal
+            
+            // Reset order state
+            setSelectedPackageId(null);
+            setSelectedAddons([]);
+            setTableQuantity(1);
+            
+        } catch (error) {
+            console.error("Error placing order:", error);
+            setErrorMessage("เกิดข้อผิดพลาดในการบันทึกรายการสั่งซื้อ: " + error.message);
+            setIsOrderProcessing(false);
+            setIsPaymentSelectionOpen(false);
+        }
+    };
+    
+    // ----------------------------------------------------
+    // 3. Sub-Components
+    // ----------------------------------------------------
+    
+    const CustomAlertDialog = ({ message, onClose }) => {
+        if (!message) return null;
+        return (
+            <div className="fixed inset-0 bg-black bg-opacity-75 z-[110] flex items-center justify-center p-4">
+                <div className="bg-white p-6 rounded-xl max-w-sm w-full text-center shadow-2xl border-t-4 border-red-700">
+                    <h4 className="text-xl font-bold text-red-700 mb-4">ข้อผิดพลาด</h4>
+                    <p className="text-gray-700 mb-6">{message}</p>
+                    <button onClick={onClose} className="bg-red-700 text-white font-bold px-4 py-2 rounded-lg hover:bg-red-800 w-full">รับทราบ</button>
+                </div>
+            </div>
+        );
+    };
+
+    // NEW: Payment Selection Modal
+    const PaymentSelectionModal = () => {
+        const [selectedBank, setSelectedBank] = useState(null);
+
+        if (!isPaymentSelectionOpen) return null;
+
+        return (
+            <div className="fixed inset-0 bg-black bg-opacity-75 z-[105] flex items-center justify-center p-4">
+                <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                    <div className="bg-red-800 p-4 text-white text-center relative">
+                        <h3 className="text-xl font-bold">เลือกช่องทางการชำระเงิน</h3>
+                        <p className="text-sm text-red-200">ยอดชำระ: {formatCurrency(calculateTotal.finalEventTotal)}</p>
+                        <button 
+                            onClick={() => setIsPaymentSelectionOpen(false)}
+                            className="absolute top-4 right-4 text-red-200 hover:text-white"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                    
+                    <div className="p-6 overflow-y-auto">
+                        {!selectedBank ? (
+                            <div className="space-y-3">
+                                <p className="text-gray-600 mb-4 text-center">กรุณาเลือกธนาคารเพื่อสแกนจ่าย</p>
+                                {banksData.map(bank => (
+                                    <button
+                                        key={bank.id}
+                                        onClick={() => setSelectedBank(bank)}
+                                        className="w-full flex items-center p-4 border rounded-xl hover:bg-gray-50 transition border-gray-200 shadow-sm"
+                                    >
+                                        <div className={`w-10 h-10 rounded-full ${bank.color} flex items-center justify-center text-white font-bold mr-4`}>
+                                            {bank.name.charAt(0)}
+                                        </div>
+                                        <div className="text-left">
+                                            <p className="font-bold text-gray-800">{bank.name}</p>
+                                            <p className="text-xs text-gray-500">Mobile Banking / QR</p>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-center space-y-4">
+                                <button 
+                                    onClick={() => setSelectedBank(null)}
+                                    className="text-sm text-gray-500 hover:text-red-700 mb-2 flex items-center justify-center w-full"
+                                >
+                                    ← เลือกธนาคารอื่น
+                                </button>
+                                
+                                <div className="border-2 border-dashed border-gray-300 p-6 rounded-xl bg-gray-50 inline-block">
+                                    {/* Simulated QR Code */}
+                                    <img 
+                                        src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=PromptPay-${selectedBank.id}-${calculateTotal.finalEventTotal}`} 
+                                        alt="QR Code" 
+                                        className="w-40 h-40 mx-auto mb-2 mix-blend-multiply"
+                                    />
+                                    <p className="text-xs text-gray-400">Scan to Pay</p>
+                                </div>
+
+                                <div className="bg-red-50 p-3 rounded-lg text-left text-sm">
+                                    <div className="flex justify-between mb-1">
+                                        <span className="text-gray-500">ธนาคาร:</span>
+                                        <span className="font-bold text-gray-800">{selectedBank.name}</span>
+                                    </div>
+                                    <div className="flex justify-between mb-1">
+                                        <span className="text-gray-500">ชื่อบัญชี:</span>
+                                        <span className="font-bold text-gray-800">{selectedBank.accName}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-500">เลขที่บัญชี:</span>
+                                        <span className="font-bold text-gray-800">{selectedBank.accNo}</span>
+                                    </div>
+                                </div>
+                                
+                                <div className="pt-2">
+                                    <button
+                                        onClick={() => handleConfirmPayment(selectedBank.id)}
+                                        disabled={isOrderProcessing}
+                                        className="w-full bg-red-700 text-white font-bold py-3 px-6 rounded-lg hover:bg-red-800 transition shadow-lg flex justify-center items-center"
+                                    >
+                                        {isOrderProcessing ? (
+                                            <span className="animate-pulse">กำลังตรวจสอบ...</span>
+                                        ) : (
+                                            "แจ้งชำระเงินเรียบร้อย"
+                                        )}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    const SuccessModal = () => {
+        if (!isSuccessModalOpen) return null;
+
+        return (
+            <div className="fixed inset-0 bg-black bg-opacity-75 z-[110] flex items-center justify-center p-4">
+                <div className="bg-white p-8 rounded-2xl max-w-lg w-full text-center shadow-2xl">
+                    <div className="text-6xl text-green-600 mb-4">
+                        <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    </div>
+                    <h3 className="text-2xl font-bold text-gray-900 mb-2">ชำระเงินสำเร็จ!</h3>
+                    <p className="text-gray-600 mb-6">
+                        ขอบคุณที่ไว้วางใจ โต๊ะจีนเจริญมงคล<br/>เราได้รับยอดเงินและคำสั่งซื้อของคุณเรียบร้อยแล้ว
+                    </p>
+                    <button
+                        onClick={() => { setIsSuccessModalOpen(false); setAppMode('customer-dashboard'); }}
+                        className="bg-amber-500 text-white font-bold px-6 py-3 rounded-lg hover:bg-amber-600 transition duration-300 w-full"
+                    >
+                        ดูรายการสั่งซื้อ
+                    </button>
+                </div>
+            </div>
+        );
+    };
+
+    const PackageCard = ({ pkg, isSelected, onSelect }) => {
+        const isPremium = pkg.isRecommended;
+        const baseClasses = "card cursor-pointer p-6 rounded-xl transition duration-300 relative shadow-md h-full flex flex-col justify-between";
+        let cardClasses = `${baseClasses} border-4 ${isSelected ? 'border-red-700 shadow-xl bg-red-50' : (isPremium ? 'border-amber-500 bg-red-800 text-white transform scale-[1.02]' : 'border-gray-200 bg-white hover:border-red-400')}`;
+        let buttonClasses = `w-full mt-4 font-bold text-white transition duration-200 rounded-lg py-2 ${isSelected ? 'bg-red-700 hover:bg-red-800' : (isPremium ? 'bg-amber-400 text-gray-900 hover:bg-amber-500' : 'bg-red-700 hover:bg-red-800')}`;
+        const textStyle = isPremium && !isSelected ? { color: 'white' } : {};
+
+        return (
+            <div className={cardClasses} onClick={() => onSelect(pkg.id)}>
+                {isPremium && (
+                    <div className="absolute top-0 right-0 bg-amber-500 text-red-800 text-xs font-black px-3 py-1 rounded-bl-lg rounded-tr-lg">แนะนำ!</div>
+                )}
+                <div style={textStyle}>
+                    <h3 className="text-2xl font-extrabold mb-1" style={textStyle}>{pkg.name}</h3>
+                    <div className="text-4xl font-black mt-4 mb-4" style={textStyle}>{formatCurrency(pkg.price)}<span className="text-xl font-normal ml-1">/โต๊ะ</span></div>
+                    <ul className="text-left space-y-2 mb-6">
+                        {pkg.features.map((feature, index) => (
+                            <li key={index} className="flex items-start text-sm">
+                                <span className={`mr-2 flex-shrink-0 ${feature.includes('(ไม่มี)') ? 'text-gray-400' : (isPremium && !isSelected ? 'text-amber-300' : 'text-red-600')}`}>
+                                    {feature.includes('(ไม่มี)') ? '✗' : '✓'}
+                                </span>
+                                {feature}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+                <button className={buttonClasses}>{isSelected ? '✓ แพ็กเกจที่เลือก' : 'เลือกแพ็กเกจนี้'}</button>
+            </div>
+        );
+    };
+
+    const AddonCard = ({ addon, isSelected, onToggle }) => {
+        const cardClasses = `p-4 rounded-lg border-2 transition duration-200 flex flex-col justify-between cursor-pointer ${
+            isSelected ? 'border-red-700 bg-red-50 shadow-md' : 'border-gray-200 bg-white hover:border-red-400'
+        }`;
+        
+        return (
+            <div className={cardClasses} onClick={() => onToggle(addon.id)}>
+                <div className="flex justify-between items-start mb-2">
+                    <h4 className="text-lg font-bold text-gray-800">{addon.name}</h4>
+                    <span className="text-xl font-extrabold text-red-700 ml-4 flex-shrink-0">{formatCurrency(addon.price)}</span>
+                </div>
+                <p className="text-sm text-gray-500 mb-2">{addon.description}</p>
+                <div className="flex justify-end mt-2">
+                    <div className={`px-3 py-1 text-xs font-semibold rounded-full ${isSelected ? 'bg-red-700 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                        {isSelected ? '✓ เพิ่มแล้ว' : '+ เลือกเพิ่ม'}
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    const SummaryLine = ({ label, value, isTotal = false }) => (
+        <div className={`flex justify-between items-center py-3 ${isTotal ? 'border-t-2 border-amber-400 pt-4 mt-4' : 'border-b border-white/20'}`}>
+            <span className={`text-xl ${isTotal ? 'text-amber-400 font-bold' : 'text-white font-normal'}`}>{label}</span>
+            <span className={`text-2xl ${isTotal ? 'text-amber-400 font-black sm:text-4xl' : 'text-amber-200 font-semibold'}`}>{value}</span>
+        </div>
+    );
+    
+    // ----------------------------------------------------
+    // 4. Customer Authentication
+    // ----------------------------------------------------
+
+    const CustomerAuth = ({ db, onLoginSuccess, onShowError }) => {
+        const [email, setEmail] = useState('');
+        const [password, setPassword] = useState('');
+        const [isRegisterMode, setIsRegisterMode] = useState(true);
+        const [isLoading, setIsLoading] = useState(false);
+        const [authMessage, setAuthMessage] = useState('');
+        
+        const registerCustomer = async () => {
+            if (!db) return;
+            if (!email || !password) return onShowError('กรุณากรอกข้อมูลให้ครบ');
+            setIsLoading(true); setAuthMessage('');
+            try {
+                const q = query(collection(db, CUSTOMER_COLLECTION_PATH), where("email", "==", email));
+                const snapshot = await getDocs(q);
+                if (!snapshot.empty) { onShowError('อีเมลนี้มีอยู่แล้ว'); setIsLoading(false); return; }
+
+                await setDoc(doc(db, CUSTOMER_COLLECTION_PATH, email), {
+                    email: email, hashedPassword: hashPassword(password), createdAt: serverTimestamp(),
+                });
+                setAuthMessage('สมัครสำเร็จ'); onLoginSuccess(email);
+            } catch (error) { onShowError(error.message); } finally { setIsLoading(false); }
+        };
+
+        const signInCustomer = async () => {
+            if (!db) return;
+            if (!email || !password) return onShowError('กรุณากรอกข้อมูลให้ครบ');
+            setIsLoading(true); setAuthMessage('');
+            try {
+                const docSnap = await getDocs(query(collection(db, CUSTOMER_COLLECTION_PATH), where("email", "==", email)));
+                if (docSnap.empty) { onShowError('ไม่พบอีเมลนี้'); setIsLoading(false); return; }
+                if (hashPassword(password) === docSnap.docs[0].data().hashedPassword) {
+                    setAuthMessage('ล็อกอินสำเร็จ'); onLoginSuccess(email);
+                } else { onShowError('รหัสผ่านไม่ถูกต้อง'); }
+            } catch (error) { onShowError(error.message); } finally { setIsLoading(false); }
+        };
+
+        return (
+            <div className="flex items-center justify-center p-4 min-h-[80vh]">
+                <div className="bg-white p-8 rounded-xl shadow-2xl max-w-sm w-full border-t-4 border-amber-500">
+                    <h2 className="text-3xl font-extrabold text-red-800 text-center mb-2">{isRegisterMode ? 'สมัครสมาชิก' : 'ล็อกอิน'}</h2>
+                    {authMessage && <div className="bg-green-100 text-green-800 p-3 rounded-lg text-sm mb-4">{authMessage}</div>}
+                    <div className="space-y-4">
+                        <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email" className="block w-full px-4 py-3 border border-gray-300 rounded-lg"/>
+                        <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password" className="block w-full px-4 py-3 border border-gray-300 rounded-lg"/>
+                        <button onClick={isRegisterMode ? registerCustomer : signInCustomer} disabled={isLoading} className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 px-4 rounded-lg">
+                            {isLoading ? '...' : (isRegisterMode ? 'สมัครสมาชิก' : 'ล็อกอิน')}
+                        </button>
+                    </div>
+                    <div className="mt-4 text-center text-sm">
+                        <button onClick={()=>setIsRegisterMode(!isRegisterMode)} className="text-red-600 block w-full mb-2">{isRegisterMode ? 'มีบัญชีแล้ว?' : 'ยังไม่มีบัญชี?'}</button>
+                        <button onClick={()=>setAppMode('order')} className="text-gray-500">กลับสู่หน้าสั่งซื้อ</button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    // ----------------------------------------------------
+    // 5. Customer Dashboard
+    // ----------------------------------------------------
+
+    const CustomerDashboard = ({ orders, onSignOut }) => {
+        return (
+            <div className="p-4 sm:p-8 max-w-4xl mx-auto">
+                <div className="flex justify-between items-center mb-8">
+                    <h2 className="text-3xl font-extrabold text-red-800">ยินดีต้อนรับ, {user?.email}</h2>
+                    <button onClick={onSignOut} className="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm">ออกจากระบบ</button>
+                </div>
+                <h3 className="text-2xl font-bold text-amber-500 mb-4">ประวัติการสั่งซื้อ ({orders.length})</h3>
+                {orders.length === 0 ? <div className="text-center p-6 text-gray-500">ไม่มีรายการสั่งซื้อ</div> : 
+                    <div className="space-y-4">
+                        {orders.map((order) => {
+                            const status = ORDER_STATUSES[order.status] || ORDER_STATUSES['Pending Payment'];
+                            return (
+                                <div key={order.id} className="bg-white p-5 rounded-xl shadow border-l-4 border-amber-500">
+                                    <div className="flex justify-between mb-2">
+                                        <span className="font-mono text-gray-600">#{order.id.slice(0,8)}</span>
+                                        <span className={`px-2 py-1 text-xs rounded ${status.color}`}>{status.label}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center">
+                                        <div>
+                                            <p className="font-bold text-red-800">{order.tableQuantity} โต๊ะ</p>
+                                            <p className="text-xs text-gray-500">{new Date(order.timestamp).toLocaleString('th-TH')}</p>
+                                        </div>
+                                        <p className="text-xl font-bold text-red-700">{formatCurrency(order.totalAmount)}</p>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                }
+            </div>
+        );
+    };
+
+    // ----------------------------------------------------
+    // 6. Admin Dashboard
+    // ----------------------------------------------------
+
+    const AdminDashboard = ({ db, onSignOut }) => {
+        const [orders, setOrders] = useState([]);
+        useEffect(() => {
+            if(!db) return;
+            return onSnapshot(collection(db, ORDER_COLLECTION_PATH), snap => {
+                const list = snap.docs.map(d=>({id:d.id, ...d.data(), timestamp: d.data().timestamp?.toDate()}));
+                setOrders(list.sort((a,b)=>b.timestamp-a.timestamp));
+            });
+        }, [db]);
+
+        return (
+            <div className="p-4 max-w-6xl mx-auto">
+                <div className="flex justify-between mb-6">
+                    <h2 className="text-2xl font-bold text-red-800">Admin Dashboard</h2>
+                    <button onClick={onSignOut} className="text-red-600 underline">Logout</button>
+                </div>
+                <div className="space-y-2">
+                    {orders.map(o => (
+                        <div key={o.id} className="bg-white p-4 rounded shadow flex flex-col md:flex-row justify-between items-center">
+                            <div className="text-sm">
+                                <span className="font-bold block">{o.customerEmail}</span>
+                                <span className="text-gray-500">{new Date(o.timestamp).toLocaleString('th-TH')}</span>
+                            </div>
+                            <div className="font-bold text-red-700 my-2 md:my-0">{formatCurrency(o.totalAmount)} ({o.tableQuantity} โต๊ะ)</div>
+                            <select 
+                                value={o.status} 
+                                onChange={e => updateDoc(doc(db, ORDER_COLLECTION_PATH, o.id), {status: e.target.value})}
+                                className="border p-1 rounded"
+                            >
+                                {Object.keys(ORDER_STATUSES).map(k=><option key={k} value={k}>{ORDER_STATUSES[k].label}</option>)}
+                            </select>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    };
+
+    // ----------------------------------------------------
+    // 7. Render Logic
+    // ----------------------------------------------------
+    
+    const Header = ({ onSetMode, user, isAdminLoggedIn, onSignOut }) => (
+        <header className="bg-red-800 text-white p-3 flex justify-between items-center sticky top-0 z-50 shadow-lg">
+            <h1 className="font-black text-xl cursor-pointer" onClick={()=>onSetMode('order')}>โต๊ะจีน เจริญมงคล</h1>
+            <div className="flex gap-2">
+                {user?.email ? 
+                    <button onClick={()=>onSetMode('customer-dashboard')} className="bg-amber-500 px-3 py-1 rounded text-sm font-bold">Dashboard</button> : 
+                    !isAdminLoggedIn && <button onClick={()=>onSetMode('customer-auth')} className="bg-red-700 px-3 py-1 rounded text-sm">เข้าสู่ระบบ</button>
+                }
+                {isAdminLoggedIn ? 
+                    <button onClick={onSignOut} className="bg-red-900 px-3 py-1 rounded text-sm">Admin Logout</button> :
+                    <button onClick={()=>onSetMode('admin-login')} className="text-xs text-red-300">Admin</button>
+                }
+            </div>
+        </header>
+    );
+
+    const OrderPage = () => {
+        const selectedPackage = packagesData.find(pkg => pkg.id === selectedPackageId);
+        return (
+             <div className="min-h-screen bg-gray-50 p-4 sm:p-8 pb-20">
+                <div className="max-w-6xl mx-auto space-y-8">
+                    <section>
+                        <h2 className="text-2xl font-black text-red-800 mb-4 border-b border-red-200 pb-2">1. เลือกแพ็กเกจ</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {packagesData.map(pkg => <PackageCard key={pkg.id} pkg={pkg} isSelected={pkg.id===selectedPackageId} onSelect={setSelectedPackageId}/>)}
+                        </div>
+                    </section>
+
+                    {selectedPackageId && (
+                        <section className="bg-white p-6 rounded-xl shadow">
+                            <h2 className="text-2xl font-black text-red-800 mb-4 border-b border-red-200 pb-2">2. เมนูเสริม</h2>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {addonsData.map(addon => <AddonCard key={addon.id} addon={addon} isSelected={selectedAddons.includes(addon.id)} onToggle={handleToggleAddon}/>)}
+                            </div>
+                        </section>
+                    )}
+
+                    {selectedPackageId && (
+                        <section className="bg-red-800 p-6 rounded-xl shadow-2xl text-white">
+                            <h2 className="text-2xl font-black text-amber-400 mb-4">3. สรุปยอด</h2>
+                            <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
+                                <div className="flex items-center gap-2">
+                                    <span className="font-bold text-lg">จำนวนโต๊ะ:</span>
+                                    <input type="number" min="1" value={tableQuantity} onChange={e=>setTableQuantity(Math.max(1, parseInt(e.target.value)||1))} className="w-20 text-center p-2 rounded text-gray-900 font-bold"/>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-amber-200 text-sm">{selectedPackage.name}</p>
+                                    <p className="text-3xl font-black text-white">{formatCurrency(calculateTotal.finalEventTotal)}</p>
+                                </div>
+                            </div>
+                            <button onClick={handleInitOrder} className="w-full bg-amber-400 hover:bg-amber-300 text-red-900 font-black py-4 rounded-lg text-xl shadow-lg transition transform hover:scale-[1.01]">
+                                สั่งซื้อและชำระเงินทันที
+                            </button>
+                            {!(user && user.email) && <p className="text-center text-red-300 text-xs mt-2">*ต้องล็อกอินก่อนสั่งซื้อ</p>}
+                        </section>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
+    let content = <div className="flex h-screen items-center justify-center text-gray-500">Loading...</div>;
+    if (isAuthReady) {
+        if (appMode === 'customer-auth') content = <CustomerAuth db={db} onLoginSuccess={setCustomerLoggedIn} onShowError={setErrorMessage} />;
+        else if (appMode === 'customer-dashboard') content = <CustomerDashboard orders={customerOrders} onSignOut={handleSignOut} />;
+        else if (appMode === 'admin-login') content = <AdminAuth onLogin={handleAdminLogin} error={loginError} onCancel={()=>setAppMode('order')} />;
+        else if (appMode === 'admin-dashboard') content = <AdminDashboard db={db} onSignOut={handleSignOut} />;
+        else content = <OrderPage />;
+    }
+
+    return (
+        <div className="min-h-screen bg-gray-50 font-sans">
+            <style>{`@import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;700;900&display=swap'); body{font-family:'Kanit',sans-serif;}`}</style>
+            <Header user={user} isAdminLoggedIn={isAdminLoggedIn} onSetMode={setAppMode} onSignOut={handleSignOut} />
+            <main>{content}</main>
+            <CustomAlertDialog message={errorMessage} onClose={()=>setErrorMessage('')} />
+            <PaymentSelectionModal />
+            <SuccessModal />
+        </div>
+    );
+}
+
+const AdminAuth = ({ onLogin, error, onCancel }) => {
+    const [u, setU] = useState(''); const [p, setP] = useState('');
+    return (
+        <div className="flex justify-center items-center h-[80vh]">
+            <div className="bg-white p-8 rounded shadow-xl w-80">
+                <h2 className="text-xl font-bold mb-4 text-center">Admin Login</h2>
+                {error && <div className="bg-red-100 text-red-800 p-2 mb-2 text-sm">{error}</div>}
+                <input className="border w-full p-2 mb-2" placeholder="User" value={u} onChange={e=>setU(e.target.value)}/>
+                <input className="border w-full p-2 mb-4" type="password" placeholder="Pass" value={p} onChange={e=>setP(e.target.value)}/>
+                <button onClick={()=>onLogin(u,p)} className="bg-red-800 text-white w-full py-2 rounded font-bold">Login</button>
+                <button onClick={onCancel} className="w-full text-sm text-gray-500 mt-2">Back</button>
+            </div>
+        </div>
+    );
+};
